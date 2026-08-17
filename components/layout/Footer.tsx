@@ -20,7 +20,7 @@ export default function Footer() {
         </div>
         <div>
           <p className="text-sm font-bold uppercase tracking-widest text-blue-300">Start a conversation</p>
-          <a className="mt-3 block break-all text-lg font-semibold text-white hover:text-blue-300" href="mailto:Saivamshi.javvaji@erpvers.com">Saivamshi.javvaji@erpvers.com</a>
+          <a className="mt-3 block break-all text-lg font-semibold text-white hover:text-blue-300" href="mailto:support@erpvers.com">support@erpvers.com</a>
           <p className="mt-2 text-sm text-slate-400">Tell us what you want your ERP to do next.</p>
         </div>
       </div>
