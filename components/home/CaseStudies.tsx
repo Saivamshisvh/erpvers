@@ -1,5 +1,6 @@
 import Image from "next/image";
 import Icon from "@/components/shared/Icon";
+import Reveal from "@/components/shared/Reveal";
 import SectionHeading from "@/components/ui/SectionHeading";
 
 const caseStudies = [
@@ -33,36 +34,38 @@ export default function CaseStudies() {
 
         <div className="mt-12 grid gap-6">
           {caseStudies.map((study) => (
-            <article key={study.client} className="rounded-2xl border border-white/10 bg-white/5 p-7 sm:p-9">
-              <div className="flex flex-wrap items-center justify-between gap-6">
-                <p className="text-sm font-bold uppercase tracking-widest text-cyan-300">{study.industry}</p>
-                <div className="rounded-xl bg-white p-3">
-                  <Image
-                    src={study.logo}
-                    alt={`${study.client} logo`}
-                    width={study.logoWidth}
-                    height={study.logoHeight}
-                    className="h-12 w-auto sm:h-14"
-                  />
+            <Reveal key={study.client}>
+              <article className="rounded-2xl border border-white/10 bg-white/5 p-7 sm:p-9">
+                <div className="flex flex-wrap items-center justify-between gap-6">
+                  <p className="text-sm font-bold uppercase tracking-widest text-cyan-300">{study.industry}</p>
+                  <div className="rounded-xl bg-white p-3">
+                    <Image
+                      src={study.logo}
+                      alt={`${study.client} logo`}
+                      width={study.logoWidth}
+                      height={study.logoHeight}
+                      className="h-12 w-auto sm:h-14"
+                    />
+                  </div>
                 </div>
-              </div>
 
-              <p className="mt-6 max-w-3xl text-base leading-7 text-slate-300">{study.summary}</p>
+                <p className="mt-6 max-w-3xl text-base leading-7 text-slate-300">{study.summary}</p>
 
-              <ul className="mt-6 grid gap-3 sm:grid-cols-3">
-                {study.work.map((item) => (
-                  <li key={item} className="flex gap-3 rounded-xl bg-white/5 p-4 text-sm leading-6 text-slate-200">
-                    <Icon name="check" className="mt-1 size-4 shrink-0 text-cyan-300" />
-                    {item}
-                  </li>
-                ))}
-              </ul>
+                <ul className="mt-6 grid gap-3 sm:grid-cols-3">
+                  {study.work.map((item) => (
+                    <li key={item} className="flex gap-3 rounded-xl bg-white/5 p-4 text-sm leading-6 text-slate-200">
+                      <Icon name="check" className="mt-1 size-4 shrink-0 text-cyan-300" />
+                      {item}
+                    </li>
+                  ))}
+                </ul>
 
-              <p className="mt-6 border-t border-white/10 pt-6 text-sm leading-6 text-slate-300">
-                <span className="font-semibold text-white">Outcome: </span>
-                {study.outcome}
-              </p>
-            </article>
+                <p className="mt-6 border-t border-white/10 pt-6 text-sm leading-6 text-slate-300">
+                  <span className="font-semibold text-white">Outcome: </span>
+                  {study.outcome}
+                </p>
+              </article>
+            </Reveal>
           ))}
         </div>
       </div>
