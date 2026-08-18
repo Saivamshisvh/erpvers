@@ -1,8 +1,16 @@
+import type { Metadata } from "next";
 import Footer from "@/components/layout/Footer";
 import Navbar from "@/components/layout/Navbar";
 import Icon from "@/components/shared/Icon";
 import PageHero from "@/components/shared/PageHero";
 import Button from "@/components/ui/Button";
+
+export const metadata: Metadata = {
+  title: "Services",
+  description:
+    "Infor LN development, Infor ION integration engineering, enterprise web portals, and mobile applications — the services ERPVers delivers for manufacturers.",
+  alternates: { canonical: "/services" },
+};
 
 const services = [
   { icon: "cube" as const, title: "Infor LN development", details: ["Extensions and customizations", "Reports and operational screens", "Process automation and performance tuning"] },

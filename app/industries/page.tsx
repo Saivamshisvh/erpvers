@@ -1,7 +1,15 @@
+import type { Metadata } from "next";
 import Footer from "@/components/layout/Footer";
 import Navbar from "@/components/layout/Navbar";
 import Icon from "@/components/shared/Icon";
 import PageHero from "@/components/shared/PageHero";
+
+export const metadata: Metadata = {
+  title: "Industries",
+  description:
+    "ERPVers works with manufacturing, industrial equipment, automotive & components, and distribution businesses to get more from Infor LN.",
+  alternates: { canonical: "/industries" },
+};
 
 const industries = [
   ["Manufacturing", "Improve the connection between ERP, production teams, and operational insight."],

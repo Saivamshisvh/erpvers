@@ -1,7 +1,15 @@
+import type { Metadata } from "next";
 import Footer from "@/components/layout/Footer";
 import Navbar from "@/components/layout/Navbar";
 import Icon from "@/components/shared/Icon";
 import PageHero from "@/components/shared/PageHero";
+
+export const metadata: Metadata = {
+  title: "Solutions",
+  description:
+    "Partner portals, operational dashboards, warehouse mobility, and connected workflows — practical solutions ERPVers builds around your existing Infor LN ERP.",
+  alternates: { canonical: "/solutions" },
+};
 
 const solutions = [
   { icon: "portal" as const, title: "Partner portals", description: "Give customers and suppliers a clear, secure way to check orders, documents, delivery status, and requests." },

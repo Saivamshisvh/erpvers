@@ -1,7 +1,15 @@
+import type { Metadata } from "next";
 import Footer from "@/components/layout/Footer";
 import Navbar from "@/components/layout/Navbar";
 import Icon from "@/components/shared/Icon";
 import PageHero from "@/components/shared/PageHero";
+
+export const metadata: Metadata = {
+  title: "About",
+  description:
+    "ERPVers extends Infor LN with modern web, mobile, and integration expertise. See our ERP-first approach to building tools people actually want to use.",
+  alternates: { canonical: "/about" },
+};
 
 const principles = [
   ["ERP-first thinking", "We begin with the operational process and ERP realities—not a generic app template."],
