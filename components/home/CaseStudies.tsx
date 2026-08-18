@@ -26,7 +26,7 @@ export default function CaseStudies() {
     <section className="bg-slate-950 py-20 text-white sm:py-28">
       <div className="mx-auto max-w-7xl px-5 sm:px-8 lg:px-10">
         <SectionHeading
-          eyebrow="Case studies"
+          eyebrow="Trusted partners"
           title="Real Infor LN work, real clients."
           description="A look at what ERPVers has actually built — not just what we say we can do."
         />
