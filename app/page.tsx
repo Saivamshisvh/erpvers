@@ -1,5 +1,6 @@
 import Footer from "@/components/layout/Footer";
 import Navbar from "@/components/layout/Navbar";
+import CaseStudies from "@/components/home/CaseStudies";
 import Hero from "@/components/home/Hero";
 import Industries from "@/components/home/Industries";
 import Services from "@/components/home/Services";
@@ -15,6 +16,7 @@ export default function Home() {
         <Services />
         <Solutions />
         <Industries />
+        <CaseStudies />
         <WhyERPVers />
       </main>
       <Footer />
