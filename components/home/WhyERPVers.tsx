@@ -27,7 +27,7 @@ const features = [
         <div className="mx-auto max-w-7xl px-6">
           <div className="mx-auto max-w-3xl text-center">
             <p className="text-sm font-semibold uppercase tracking-widest text-blue-600">
-              Why Choose ERPVers
+              Why Choose ERP VERS
             </p>
   
             <h2 className="mt-4 text-4xl font-bold text-slate-900">

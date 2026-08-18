@@ -4,11 +4,11 @@ import "./globals.css";
 export const metadata: Metadata = {
   metadataBase: new URL("https://erpvers.com"),
   title: {
-    default: "ERPVers | Modern ERP solutions for manufacturers",
-    template: "%s | ERPVers",
+    default: "ERP VERS | Modern ERP solutions for manufacturers",
+    template: "%s | ERP VERS",
   },
   description:
-    "ERPVers extends Infor LN with tailored web portals, mobile applications, integrations, and operational dashboards.",
+    "ERP VERS extends Infor LN with tailored web portals, mobile applications, integrations, and operational dashboards.",
   alternates: {
     canonical: "/",
   },
@@ -16,8 +16,8 @@ export const metadata: Metadata = {
     type: "website",
     locale: "en_US",
     url: "https://erpvers.com",
-    siteName: "ERPVers",
-    title: "ERPVers | Modern ERP solutions for manufacturers",
+    siteName: "ERP VERS",
+    title: "ERP VERS | Modern ERP solutions for manufacturers",
     description:
       "Modern web, mobile, and integration solutions that extend Infor LN and enterprise ERP platforms.",
   },

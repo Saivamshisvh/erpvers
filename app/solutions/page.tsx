@@ -7,7 +7,7 @@ import PageHero from "@/components/shared/PageHero";
 export const metadata: Metadata = {
   title: "Solutions",
   description:
-    "Partner portals, operational dashboards, warehouse mobility, and connected workflows — practical solutions ERPVers builds around your existing Infor LN ERP.",
+    "Partner portals, operational dashboards, warehouse mobility, and connected workflows — practical solutions ERP VERS builds around your existing Infor LN ERP.",
   alternates: { canonical: "/solutions" },
 };
 

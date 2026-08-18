@@ -7,10 +7,10 @@ type LogoProps = {
 
 export default function Logo({ inverse = false }: LogoProps) {
   return (
-    <Link href="/" className="group inline-flex items-center" aria-label="ERPVers home">
+    <Link href="/" className="group inline-flex items-center" aria-label="ERP VERS home">
       <Image
         src={inverse ? "/logo-inverse.png" : "/logo.png"}
-        alt="ERPVers"
+        alt="ERP VERS"
         width={640}
         height={325}
         priority

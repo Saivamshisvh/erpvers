@@ -15,7 +15,7 @@ export default function Footer() {
             <Link href="/services" className="w-fit hover:text-white">Services</Link>
             <Link href="/solutions" className="w-fit hover:text-white">Solutions</Link>
             <Link href="/industries" className="w-fit hover:text-white">Industries</Link>
-            <Link href="/about" className="w-fit hover:text-white">About ERPVers</Link>
+            <Link href="/about" className="w-fit hover:text-white">About ERP VERS</Link>
           </div>
         </div>
         <div>
@@ -24,7 +24,7 @@ export default function Footer() {
           <p className="mt-2 text-sm text-slate-400">Tell us what you want your ERP to do next.</p>
         </div>
       </div>
-      <div className="border-t border-white/10 px-5 py-5 text-center text-xs text-slate-500">© {new Date().getFullYear()} ERPVers. Built for the next phase of ERP.</div>
+      <div className="border-t border-white/10 px-5 py-5 text-center text-xs text-slate-500">© {new Date().getFullYear()} ERP VERS. Built for the next phase of ERP.</div>
     </footer>
   );
 }

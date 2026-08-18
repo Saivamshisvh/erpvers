@@ -31,7 +31,7 @@ export default function ContactForm() {
     const service = String(data.get("service") ?? "").trim();
     const message = String(data.get("message") ?? "").trim();
 
-    const subject = `ERPVers enquiry — ${service}`;
+    const subject = `ERP VERS enquiry — ${service}`;
     const bodyLines = [
       `Name: ${name}`,
       `Email: ${email}`,

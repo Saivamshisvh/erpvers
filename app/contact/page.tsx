@@ -7,7 +7,7 @@ import ContactInfo from "@/components/contact/ContactInfo";
 
 export const metadata: Metadata = {
   title: "Contact",
-  description: "Tell ERPVers about the Infor LN workflow, integration, or application you want to build. We respond directly, within one business day.",
+  description: "Tell ERP VERS about the Infor LN workflow, integration, or application you want to build. We respond directly, within one business day.",
 };
 
 export default function ContactPage() {

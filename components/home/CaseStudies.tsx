@@ -28,7 +28,7 @@ export default function CaseStudies() {
         <SectionHeading
           eyebrow="Trusted partners"
           title="Real Infor LN work, real clients."
-          description="A look at what ERPVers has actually built — not just what we say we can do."
+          description="A look at what ERP VERS has actually built — not just what we say we can do."
         />
 
         <div className="mt-12 grid gap-6">
