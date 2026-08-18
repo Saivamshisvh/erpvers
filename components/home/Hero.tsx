@@ -1,7 +1,7 @@
 import Button from "@/components/ui/Button";
 import Icon from "@/components/shared/Icon";
 
-const capabilities = ["Infor LN extensions", "Web portals & dashboards", "Mobile apps & integrations"];
+const capabilities = ["Infor LN extensions", "Web portals & dashboards", "Mobile apps & integrations", "Infor LN training & enablement"];
 
 export default function Hero() {
   return (

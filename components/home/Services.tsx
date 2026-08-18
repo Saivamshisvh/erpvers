@@ -7,6 +7,7 @@ const services = [
   { icon: "portal" as const, title: "Web applications", text: "Customer, supplier, and employee portals that make ERP data easier to use." },
   { icon: "mobile" as const, title: "Mobile workflows", text: "Purpose-built apps for warehouse, approvals, field teams, and shop-floor operations." },
   { icon: "network" as const, title: "ERP integrations", text: "Reliable API and ION-based connections that keep systems and teams in sync." },
+  { icon: "book" as const, title: "Infor LN training", text: "Hands-on training and knowledge transfer that gets your own team confident on Infor LN." },
 ];
 
 export default function Services() {
@@ -18,7 +19,7 @@ export default function Services() {
           title="Extend the value of the ERP you already trust."
           description="From a single workflow to a connected digital experience, we help turn ERP complexity into practical tools for your people."
         />
-        <div className="mt-12 grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {services.map((service, index) => (
             <Reveal key={service.title} delay={index * 80}>
               <article className="group h-full rounded-2xl border border-slate-200 bg-white p-6 transition-all duration-200 hover:-translate-y-1 hover:border-blue-200 hover:shadow-xl hover:shadow-blue-950/5">

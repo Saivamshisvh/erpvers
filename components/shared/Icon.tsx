@@ -1,5 +1,6 @@
 type IconName =
   | "arrow"
+  | "book"
   | "chart"
   | "chat"
   | "check"
@@ -16,6 +17,7 @@ type IconProps = { name: IconName; className?: string };
 
 const paths: Record<IconName, React.ReactNode> = {
   arrow: <path d="M5 12h14m-6-6 6 6-6 6" />,
+  book: <><path d="M4 5.5c2.8-1.5 5.6-1.5 8 0v14c-2.4-1.5-5.2-1.5-8 0v-14Z" /><path d="M20 5.5c-2.8-1.5-5.6-1.5-8 0v14c2.4-1.5 5.2-1.5 8 0v-14Z" /></>,
   chart: <><path d="M4 19V5m0 14h16" /><path d="m7 15 4-4 3 2 5-6" /></>,
   chat: <path d="M21 11.5a8.38 8.38 0 0 1-4.7 7.6 8.5 8.5 0 0 1-3.8.9 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5Z" />,
   check: <path d="m5 12 4 4L19 6" />,
