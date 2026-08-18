@@ -4,6 +4,7 @@ import Navbar from "@/components/layout/Navbar";
 import PageHero from "@/components/shared/PageHero";
 import ContactForm from "@/components/contact/ContactForm";
 import ContactInfo from "@/components/contact/ContactInfo";
+import FAQ from "@/components/shared/FAQ";
 
 export const metadata: Metadata = {
   title: "Contact",
@@ -30,6 +31,7 @@ export default function ContactPage() {
             <ContactInfo />
           </div>
         </section>
+        <FAQ />
       </main>
       <Footer />
     </>

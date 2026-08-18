@@ -42,6 +42,12 @@ export default function AboutPage() {
                 Infor LN is built to run critical business operations. ERP VERS builds the web, mobile, integration,
                 and automation layers that help people interact with it more effectively.
               </p>
+              <div className="mt-8 inline-flex items-center gap-4 rounded-2xl border border-slate-200 bg-slate-50 px-5 py-4">
+                <span className="text-3xl font-bold tracking-tight text-blue-600">10+</span>
+                <span className="max-w-[14rem] text-sm font-semibold leading-5 text-slate-700">
+                  Years of hands-on Infor LN experience
+                </span>
+              </div>
             </Reveal>
           </div>
         </section>

@@ -16,7 +16,7 @@ export default function Hero() {
             {capabilities.map((capability) => <li key={capability} className="flex items-center gap-2.5 text-sm font-semibold text-slate-700"><span className="grid size-5 place-items-center rounded-full bg-blue-100 text-blue-700"><Icon name="check" className="size-3.5" /></span>{capability}</li>)}
           </ul>
           <div className="mt-9 flex flex-wrap gap-3"><Button href="/contact">Book a consultation <Icon name="arrow" className="ml-2 size-4" /></Button><Button href="#services" variant="secondary">Explore services</Button></div>
-          <p className="mt-6 text-sm text-slate-500">Focused on manufacturing. Built for real operations.</p>
+          <p className="mt-6 text-sm text-slate-500">10+ years of hands-on Infor LN experience. Focused on manufacturing.</p>
         </div>
         <DashboardMockup />
       </div>
