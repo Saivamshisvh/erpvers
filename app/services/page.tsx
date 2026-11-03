@@ -3,6 +3,7 @@ import Footer from "@/components/layout/Footer";
 import Navbar from "@/components/layout/Navbar";
 import Icon from "@/components/shared/Icon";
 import PageHero from "@/components/shared/PageHero";
+import PrepaidCredits from "@/components/shared/PrepaidCredits";
 import Reveal from "@/components/shared/Reveal";
 import Button from "@/components/ui/Button";
 import SectionHeading from "@/components/ui/SectionHeading";
@@ -104,6 +105,8 @@ export default function ServicesPage() {
             </div>
           </section>
         ))}
+
+        <PrepaidCredits />
 
         <section className="border-t border-slate-200 bg-slate-50 py-16">
           <Reveal className="mx-auto flex max-w-7xl flex-col items-start justify-between gap-6 px-5 sm:px-8 md:flex-row md:items-center lg:px-10">
