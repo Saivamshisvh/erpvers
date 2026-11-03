@@ -19,14 +19,17 @@ export default function Navbar() {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
+  // Close the mobile menu whenever the route changes. Adjusting state
+  // during render (rather than in an Effect) avoids an extra render pass.
+  const [prevPathname, setPrevPathname] = useState(pathname);
+  if (pathname !== prevPathname) {
+    setPrevPathname(pathname);
+    setMenuOpen(false);
+  }
+
   function isActive(href: string) {
     return pathname === href || pathname.startsWith(`${href}/`);
   }
-
-  // Close the mobile menu whenever the route changes.
-  useEffect(() => {
-    setMenuOpen(false);
-  }, [pathname]);
 
   // Close on outside click and on Escape.
   useEffect(() => {
