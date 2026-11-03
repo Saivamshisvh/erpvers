@@ -29,7 +29,7 @@ const erpServices: Service[] = [
 ];
 
 const dataServices: Service[] = [
-  { icon: "chart", title: "Data analytics", details: ["Power BI and Tableau dashboards", "KPI reporting on operational, sales, and financial ERP data", "Self-service reporting for business teams"] },
+  { icon: "chart", title: "Data analytics", details: ["Power BI, Tableau, and Qlik Sense dashboards", "KPI reporting on operational, sales, and financial ERP data", "Self-service reporting for business teams"] },
   { icon: "database", title: "Data engineering", details: ["Azure Data Factory pipelines from ERP and business systems", "Snowflake data warehousing and modelling", "Data quality, cleansing, and migration support"] },
   { icon: "cloud", title: "SAP BTP", details: ["Integration Suite and API-based connectivity", "Side-by-side extensions to SAP applications", "Data and analytics services on SAP BTP"] },
 ];
@@ -49,7 +49,7 @@ const groups = [
     title: "Turn business data into decisions.",
     description: "Analytics, data engineering, and SAP BTP expertise to connect, model, and make sense of your data.",
     services: dataServices,
-    tools: ["Power BI", "Tableau", "Snowflake", "Azure Data Factory", "SAP BTP"],
+    tools: ["Power BI", "Tableau", "Qlik Sense", "Snowflake", "Azure Data Factory", "SAP BTP"],
     sectionBg: "bg-white",
     cardBg: "bg-slate-50",
   },
