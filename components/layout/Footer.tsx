@@ -7,7 +7,7 @@ export default function Footer() {
       <div className="mx-auto grid max-w-7xl gap-10 px-5 py-14 sm:px-8 md:grid-cols-[1.4fr_0.7fr_1fr] lg:px-10">
         <div>
           <Logo inverse />
-          <p className="mt-5 max-w-md text-sm leading-6 text-slate-400">Modern web, mobile, and integration solutions for manufacturers who want more from their ERP investment.</p>
+          <p className="mt-5 max-w-md text-sm leading-6 text-slate-400">Modern web, mobile, integration, and data solutions for teams who want more from their ERP investment.</p>
         </div>
         <div>
           <p className="text-sm font-bold uppercase tracking-widest text-blue-300">Explore</p>

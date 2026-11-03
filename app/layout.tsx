@@ -15,7 +15,7 @@ export const metadata: Metadata = {
     template: "%s | ERP VERS",
   },
   description:
-    "ERP VERS extends Infor LN with tailored web portals, mobile applications, integrations, and operational dashboards.",
+    "ERP VERS extends Infor LN with web portals, mobile apps, and integrations — plus data analytics, data engineering, and SAP BTP services.",
   alternates: {
     canonical: "/",
   },
@@ -26,7 +26,7 @@ export const metadata: Metadata = {
     siteName: "ERP VERS",
     title: "ERP VERS | Modern ERP solutions for manufacturers",
     description:
-      "Modern web, mobile, and integration solutions that extend Infor LN and enterprise ERP platforms.",
+      "Modern web, mobile, integration, and data solutions that extend Infor LN, SAP BTP, and enterprise ERP platforms.",
   },
   robots: {
     index: true,
