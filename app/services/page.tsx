@@ -10,7 +10,7 @@ import SectionHeading from "@/components/ui/SectionHeading";
 export const metadata: Metadata = {
   title: "Services",
   description:
-    "Infor LN development, ION integration, web portals, mobile apps, Infor LN training, data analytics, data engineering, and SAP BTP — the services ERP VERS delivers.",
+    "Infor LN development, ION integration, web portals, mobile apps, Infor LN training, data analytics (Power BI, Tableau), data engineering (Snowflake, Azure Data Factory), and SAP BTP — the services ERP VERS delivers.",
   alternates: { canonical: "/services" },
 };
 
@@ -29,8 +29,8 @@ const erpServices: Service[] = [
 ];
 
 const dataServices: Service[] = [
-  { icon: "chart", title: "Data analytics", details: ["Business dashboards and KPI reporting", "Operational, sales, and financial analysis on ERP data", "Self-service reporting for business teams"] },
-  { icon: "database", title: "Data engineering", details: ["Data pipelines from ERP and business systems", "Data warehouse modelling and transformation", "Data quality, cleansing, and migration support"] },
+  { icon: "chart", title: "Data analytics", details: ["Power BI and Tableau dashboards", "KPI reporting on operational, sales, and financial ERP data", "Self-service reporting for business teams"] },
+  { icon: "database", title: "Data engineering", details: ["Azure Data Factory pipelines from ERP and business systems", "Snowflake data warehousing and modelling", "Data quality, cleansing, and migration support"] },
   { icon: "cloud", title: "SAP BTP", details: ["Integration Suite and API-based connectivity", "Side-by-side extensions to SAP applications", "Data and analytics services on SAP BTP"] },
 ];
 
@@ -40,6 +40,7 @@ const groups = [
     title: "Infor LN and the tools around it.",
     description: "Development, integration, applications, and training for teams running Infor LN.",
     services: erpServices,
+    tools: [] as string[],
     sectionBg: "bg-slate-50",
     cardBg: "bg-white",
   },
@@ -48,6 +49,7 @@ const groups = [
     title: "Turn business data into decisions.",
     description: "Analytics, data engineering, and SAP BTP expertise to connect, model, and make sense of your data.",
     services: dataServices,
+    tools: ["Power BI", "Tableau", "Snowflake", "Azure Data Factory", "SAP BTP"],
     sectionBg: "bg-white",
     cardBg: "bg-slate-50",
   },
@@ -68,6 +70,17 @@ export default function ServicesPage() {
           <section key={group.eyebrow} className={`${group.sectionBg} py-20 sm:py-24`}>
             <div className="mx-auto max-w-7xl px-5 sm:px-8 lg:px-10">
               <SectionHeading eyebrow={group.eyebrow} title={group.title} description={group.description} />
+              {group.tools.length > 0 && (
+                <Reveal delay={60} className="mt-8">
+                  <ul className="flex flex-wrap gap-2" aria-label="Tools we work with">
+                    {group.tools.map((tool) => (
+                      <li key={tool} className="rounded-full border border-blue-100 bg-blue-50 px-3.5 py-1.5 text-sm font-semibold text-blue-700">
+                        {tool}
+                      </li>
+                    ))}
+                  </ul>
+                </Reveal>
+              )}
               <div className="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
                 {group.services.map((service, index) => (
                   <Reveal key={service.title} delay={index * 80}>
