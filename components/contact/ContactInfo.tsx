@@ -1,10 +1,8 @@
 import Icon from "@/components/shared/Icon";
 import CopyableEmail from "@/components/contact/CopyableEmail";
+import { WHATSAPP_HREF } from "@/lib/whatsapp";
 
 const CONTACT_EMAIL = "support@erpvers.com";
-const WHATSAPP_NUMBER = "919381920369";
-const WHATSAPP_MESSAGE = "Hi ERP VERS, I'd like to talk about a project.";
-const WHATSAPP_HREF = `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(WHATSAPP_MESSAGE)}`;
 
 export default function ContactInfo() {
   return (
