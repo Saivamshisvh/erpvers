@@ -11,7 +11,7 @@ export default function Industries() {
         <SectionHeading
           eyebrow="Industries"
           title="For teams that make, move, and improve."
-          description="ERP VERS is focused on the operational reality of manufacturing and distribution—not generic digital transformation."
+          description="ERP VERS is focused on the operational reality of manufacturing and distribution - not generic digital transformation."
         />
         <div className="grid gap-3 sm:grid-cols-2">
           {industries.map((industry, index) => (

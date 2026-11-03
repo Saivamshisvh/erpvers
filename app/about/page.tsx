@@ -13,7 +13,7 @@ export const metadata: Metadata = {
 };
 
 const principles = [
-  ["ERP-first thinking", "We begin with the operational process and ERP realities—not a generic app template."],
+  ["ERP-first thinking", "We begin with the operational process and ERP realities - not a generic app template."],
   ["Useful, not flashy", "Every screen, integration, and workflow should make a person’s day easier."],
   ["Built to evolve", "We design clean foundations that can grow from a focused improvement to a broader platform."],
 ];

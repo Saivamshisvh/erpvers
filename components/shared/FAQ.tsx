@@ -12,7 +12,7 @@ const faqs = [
   },
   {
     q: "Can you deliver Infor LN training separately from development work?",
-    a: "Yes — hands-on training and knowledge transfer for functional and technical teams is one of our core services, independent of any development engagement.",
+    a: "Yes - hands-on training and knowledge transfer for functional and technical teams is one of our core services, independent of any development engagement.",
   },
   {
     q: "Do you work remotely?",

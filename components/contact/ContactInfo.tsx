@@ -39,7 +39,7 @@ export default function ContactInfo() {
         </span>
         <h3 className="mt-5 text-lg font-bold">What to expect</h3>
         <p className="mt-2 text-sm leading-6 text-slate-300">
-          You&apos;ll hear back from us directly within one business day — no account managers or hand-offs, just the people who&apos;ll actually do the work.
+          You&apos;ll hear back from us directly within one business day - no account managers or hand-offs, just the people who&apos;ll actually do the work.
         </p>
       </div>
     </div>

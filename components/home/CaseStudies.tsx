@@ -11,14 +11,14 @@ const caseStudies = [
     logoHeight: 209,
     industry: "Industrial equipment · Canning machinery, est. 1977",
     summary:
-      "A full scope of Infor LN development for a long-established canning machinery manufacturer — from core extensions to a mobile app that connects the factory floor directly to LN.",
+      "A full scope of Infor LN development for a long-established canning machinery manufacturer - from core extensions to a mobile app that connects the factory floor directly to LN.",
     work: [
       "Infor LN development, customizations, and extensions",
       "Custom report design for operational and management visibility",
       "A mobile application for factory staff to record production data straight into Infor LN",
     ],
     outcome:
-      "Production data now flows from the factory floor into Infor LN directly through mobile, instead of manual re-entry — with reporting tailored to how their team actually works.",
+      "Production data now flows from the factory floor into Infor LN directly through mobile, instead of manual re-entry - with reporting tailored to how their team actually works.",
   },
 ];
 
@@ -29,7 +29,7 @@ export default function CaseStudies() {
         <SectionHeading
           eyebrow="Trusted partners"
           title="Real Infor LN work, real clients."
-          description="A look at what ERP VERS has actually built — not just what we say we can do."
+          description="A look at what ERP VERS has actually built - not just what we say we can do."
         />
 
         <div className="mt-12 grid gap-6">

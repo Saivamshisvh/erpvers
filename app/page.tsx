@@ -17,7 +17,7 @@ export default function Home() {
         <Services />
         <Solutions />
         <Industries />
-        {/* Trusted partners / case studies — ready in components/home/CaseStudies.tsx, re-add <CaseStudies /> here once a client approves being featured. */}
+        {/* Trusted partners / case studies - ready in components/home/CaseStudies.tsx, re-add <CaseStudies /> here once a client approves being featured. */}
         <WhyERPVers />
         <HowWeWork />
         <PrepaidCredits variant="teaser" />

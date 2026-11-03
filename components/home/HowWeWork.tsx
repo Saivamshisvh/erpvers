@@ -11,7 +11,7 @@ const steps = [
   {
     icon: "layers" as const,
     title: "Scoping",
-    text: "We outline the approach, timeline, and cost before any commitment — no surprises once work starts.",
+    text: "We outline the approach, timeline, and cost before any commitment - no surprises once work starts.",
   },
   {
     icon: "cube" as const,
@@ -32,7 +32,7 @@ export default function HowWeWork() {
         <SectionHeading
           eyebrow="How we work"
           title="A simple, low-risk way to start."
-          description="No long onboarding, no big upfront commitment — just a short call to see if we're a fit, then a clear plan before any work begins."
+          description="No long onboarding, no big upfront commitment - just a short call to see if we're a fit, then a clear plan before any work begins."
         />
         <div className="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
           {steps.map((step, index) => (

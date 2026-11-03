@@ -11,7 +11,7 @@ import SectionHeading from "@/components/ui/SectionHeading";
 export const metadata: Metadata = {
   title: "Services",
   description:
-    "Infor LN development, ION integration, web portals, mobile apps, Infor LN training, data analytics (Power BI, Tableau), data engineering (Snowflake, Azure Data Factory), and SAP BTP — the services ERP VERS delivers.",
+    "Infor LN development, ION integration, web portals, mobile apps, Infor LN training, data analytics (Power BI, Tableau), data engineering (Snowflake, Azure Data Factory), and SAP BTP - the services ERP VERS delivers.",
   alternates: { canonical: "/services" },
 };
 

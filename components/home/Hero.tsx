@@ -11,7 +11,7 @@ export default function Hero() {
         <div>
           <div className="inline-flex items-center gap-2 rounded-full border border-blue-100 bg-white px-3 py-1.5 text-xs font-bold text-blue-700 shadow-sm"><span className="size-1.5 rounded-full bg-cyan-400" /> ERP digital transformation partner</div>
           <h1 className="mt-7 max-w-2xl text-4xl font-bold tracking-[-0.045em] text-slate-950 sm:text-5xl lg:text-6xl lg:leading-[1.04]">Modernize your ERP <span className="text-blue-600">without replacing it.</span></h1>
-          <p className="mt-6 max-w-xl text-lg leading-8 text-slate-600">ERP VERS helps manufacturers extend Infor LN with practical web applications, mobile workflows, and integrations—built around the way your teams already work.</p>
+          <p className="mt-6 max-w-xl text-lg leading-8 text-slate-600">ERP VERS helps manufacturers extend Infor LN with practical web applications, mobile workflows, and integrations - built around the way your teams already work.</p>
           <ul className="mt-7 grid gap-3 sm:grid-cols-2" aria-label="ERP VERS capabilities">
             {capabilities.map((capability) => <li key={capability} className="flex items-center gap-2.5 text-sm font-semibold text-slate-700"><span className="grid size-5 place-items-center rounded-full bg-blue-100 text-blue-700"><Icon name="check" className="size-3.5" /></span>{capability}</li>)}
           </ul>

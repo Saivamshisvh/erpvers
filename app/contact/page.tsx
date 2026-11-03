@@ -23,7 +23,7 @@ export default function ContactPage() {
               Let&apos;s make your ERP work <span className="text-cyan-300">better for your team.</span>
             </>
           }
-          description="Tell us about the process, integration, portal, or mobile workflow you want to improve. We'll start with the problem—not a sales pitch."
+          description="Tell us about the process, integration, portal, or mobile workflow you want to improve. We'll start with the problem - not a sales pitch."
         />
         <section className="bg-slate-50 py-20 sm:py-28">
           <div className="mx-auto grid max-w-6xl gap-8 px-5 sm:px-8 lg:grid-cols-[1.3fr_0.9fr] lg:px-10">

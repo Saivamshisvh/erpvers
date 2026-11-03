@@ -13,7 +13,7 @@ const features = [
       "Responsive portals, dashboards, and web applications built with modern technologies.",
   },
   {
-    title: "Seamless Integrations",
+    title: "Integration Engineering",
     description:
       "REST APIs, ION, BODs, and secure integrations between ERP and external systems.",
   },

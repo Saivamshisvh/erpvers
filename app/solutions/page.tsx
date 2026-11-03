@@ -8,7 +8,7 @@ import Reveal from "@/components/shared/Reveal";
 export const metadata: Metadata = {
   title: "Solutions",
   description:
-    "Partner portals, operational dashboards, warehouse mobility, and connected workflows — practical solutions ERP VERS builds around your existing Infor LN ERP.",
+    "Partner portals, operational dashboards, warehouse mobility, and connected workflows - practical solutions ERP VERS builds around your existing Infor LN ERP.",
   alternates: { canonical: "/solutions" },
 };
 
@@ -27,7 +27,7 @@ export default function SolutionsPage() {
         <PageHero
           eyebrow="Solutions"
           title={<>Built for the work <span className="text-cyan-300">around your ERP.</span></>}
-          description="These are practical starting points for extending your ERP—not off-the-shelf promises. Each solution is tailored to your process and platform."
+          description="These are practical starting points for extending your ERP - not off-the-shelf promises. Each solution is tailored to your process and platform."
         />
 
         <section className="bg-white py-20 sm:py-28">

@@ -11,7 +11,7 @@ type CopyableEmailProps = {
 /**
  * Legacy, synchronous copy fallback. Doesn't depend on the async Clipboard
  * API (which can silently hang waiting on a permission grant in some
- * browsers) — this works immediately off a real user click.
+ * browsers) - this works immediately off a real user click.
  */
 function legacyCopy(text: string): boolean {
   const textarea = document.createElement("textarea");
@@ -59,7 +59,7 @@ export default function CopyableEmail({ email, className = "" }: CopyableEmailPr
         });
 
       // The Clipboard API can hang waiting on a permission prompt instead of
-      // rejecting. Don't leave the button looking dead — fall back fast.
+      // rejecting. Don't leave the button looking dead - fall back fast.
       setTimeout(() => {
         if (!settled) {
           settled = true;

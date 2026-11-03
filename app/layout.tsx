@@ -16,7 +16,7 @@ export const metadata: Metadata = {
     template: "%s | ERP VERS",
   },
   description:
-    "ERP VERS extends Infor LN with web portals, mobile apps, and integrations — plus data analytics, data engineering, and SAP BTP services.",
+    "ERP VERS extends Infor LN with web portals, mobile apps, and integrations - plus data analytics, data engineering, and SAP BTP services.",
   alternates: {
     canonical: "/",
   },
