@@ -18,7 +18,7 @@ const caseStudies = [
       "A mobile application for factory staff to record production data straight into Infor LN",
     ],
     outcome:
-      "Production data now flows from the factory floor into Infor LN directly through mobile, instead of manual re-entry - with reporting tailored to how their team actually works.",
+      "Production data now flows from the factory floor into Infor LN directly through mobile, instead of manual re-entry - with reporting built around how their team actually works.",
   },
 ];
 

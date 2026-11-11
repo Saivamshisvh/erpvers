@@ -35,6 +35,18 @@ export const metadata: Metadata = {
   },
 };
 
+const organizationJsonLd = {
+  "@context": "https://schema.org",
+  "@type": "Organization",
+  name: "ERP VERS",
+  url: "https://erpvers.com",
+  logo: "https://erpvers.com/logo.png",
+  email: "support@erpvers.com",
+  description:
+    "ERP VERS extends Infor LN with web portals, mobile apps, and integrations, and provides data analytics, data engineering, and SAP BTP services.",
+  knowsAbout: ["Infor LN", "Infor ION", "ERP integration", "Data analytics", "Data engineering", "SAP BTP"],
+};
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -43,8 +55,15 @@ export default function RootLayout({
   return (
     <html lang="en" className={`h-full antialiased ${inter.variable}`}>
       <body className="min-h-full flex flex-col bg-slate-50 text-slate-950">
+        <a
+          href="#main"
+          className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[60] focus:rounded-lg focus:bg-white focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-blue-700 focus:shadow-lg"
+        >
+          Skip to content
+        </a>
         {children}
         <WhatsAppButton />
+        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(organizationJsonLd) }} />
       </body>
     </html>
   );

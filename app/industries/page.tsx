@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Footer from "@/components/layout/Footer";
 import Navbar from "@/components/layout/Navbar";
+import CTASection from "@/components/shared/CTASection";
 import Icon from "@/components/shared/Icon";
 import PageHero from "@/components/shared/PageHero";
 import Reveal from "@/components/shared/Reveal";
@@ -8,12 +9,12 @@ import Reveal from "@/components/shared/Reveal";
 export const metadata: Metadata = {
   title: "Industries",
   description:
-    "ERP VERS works with manufacturing, industrial equipment, automotive & components, and distribution businesses to get more from Infor LN.",
+    "ERP VERS works with discrete manufacturing, industrial equipment, automotive & components, and distribution businesses to get more from Infor LN.",
   alternates: { canonical: "/industries" },
 };
 
 const industries = [
-  ["Manufacturing", "Improve the connection between ERP, production teams, and operational insight."],
+  ["Discrete manufacturing", "Improve the connection between ERP, production teams, and operational insight."],
   ["Industrial equipment", "Support complex orders, inventory visibility, service workflows, and partner access."],
   ["Automotive & components", "Create dependable, timely workflows for quality, planning, and supply-chain collaboration."],
   ["Distribution", "Give warehouse and customer-facing teams better access to the information that drives fulfillment."],
@@ -23,7 +24,7 @@ export default function IndustriesPage() {
   return (
     <>
       <Navbar />
-      <main>
+      <main id="main">
         <PageHero
           eyebrow="Industries"
           title={<>Created for companies that <span className="text-cyan-300">make and move.</span></>}
@@ -47,6 +48,12 @@ export default function IndustriesPage() {
             ))}
           </div>
         </section>
+
+        <CTASection
+          eyebrow="Your industry, your process"
+          title="Tell us how your operation runs today."
+          description="We start from your process and your Infor LN setup, then work out where a better tool would make the biggest difference."
+        />
       </main>
       <Footer />
     </>

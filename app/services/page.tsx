@@ -1,17 +1,17 @@
 import type { Metadata } from "next";
 import Footer from "@/components/layout/Footer";
 import Navbar from "@/components/layout/Navbar";
+import CTASection from "@/components/shared/CTASection";
 import Icon from "@/components/shared/Icon";
 import PageHero from "@/components/shared/PageHero";
 import PrepaidCredits from "@/components/shared/PrepaidCredits";
 import Reveal from "@/components/shared/Reveal";
-import Button from "@/components/ui/Button";
 import SectionHeading from "@/components/ui/SectionHeading";
 
 export const metadata: Metadata = {
   title: "Services",
   description:
-    "Infor LN development, ION integration, web portals, mobile apps, Infor LN training, data analytics (Power BI, Tableau), data engineering (Snowflake, Azure Data Factory), and SAP BTP - the services ERP VERS delivers.",
+    "Infor LN development, ION integration, web portals, mobile apps, Infor LN training, data analytics (Power BI, Tableau, Qlik Sense), data engineering (Snowflake, Azure Data Factory), and SAP BTP - the services ERP VERS delivers.",
   alternates: { canonical: "/services" },
 };
 
@@ -37,6 +37,7 @@ const dataServices: Service[] = [
 
 const groups = [
   {
+    id: "erp-engineering",
     eyebrow: "ERP engineering",
     title: "Infor LN and the tools around it.",
     description: "Development, integration, applications, and training for teams running Infor LN.",
@@ -46,6 +47,7 @@ const groups = [
     cardBg: "bg-white",
   },
   {
+    id: "data-cloud",
     eyebrow: "Data & cloud",
     title: "Turn business data into decisions.",
     description: "Analytics, data engineering, and SAP BTP expertise to connect, model, and make sense of your data.",
@@ -60,7 +62,7 @@ export default function ServicesPage() {
   return (
     <>
       <Navbar />
-      <main>
+      <main id="main">
         <PageHero
           eyebrow="Services"
           title={<>Technology that makes ERP easier <span className="text-cyan-300">to use.</span></>}
@@ -68,7 +70,7 @@ export default function ServicesPage() {
         />
 
         {groups.map((group) => (
-          <section key={group.eyebrow} className={`${group.sectionBg} py-20 sm:py-24`}>
+          <section key={group.id} id={group.id} className={`${group.sectionBg} py-20 sm:py-24`}>
             <div className="mx-auto max-w-7xl px-5 sm:px-8 lg:px-10">
               <SectionHeading eyebrow={group.eyebrow} title={group.title} description={group.description} />
               {group.tools.length > 0 && (
@@ -108,19 +110,7 @@ export default function ServicesPage() {
 
         <PrepaidCredits />
 
-        <section className="border-t border-slate-200 bg-slate-50 py-16">
-          <Reveal className="mx-auto flex max-w-7xl flex-col items-start justify-between gap-6 px-5 sm:px-8 md:flex-row md:items-center lg:px-10">
-            <div>
-              <p className="text-sm font-bold uppercase tracking-widest text-blue-600">Start with one workflow</p>
-              <h2 className="mt-3 text-3xl font-bold tracking-tight text-slate-950">
-                Tell us where your ERP or data has friction.
-              </h2>
-            </div>
-            <Button href="/contact">
-              Discuss your requirement <Icon name="arrow" className="ml-2 size-4" />
-            </Button>
-          </Reveal>
-        </section>
+        <CTASection />
       </main>
       <Footer />
     </>

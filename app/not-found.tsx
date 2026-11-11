@@ -13,7 +13,7 @@ export default function NotFound() {
   return (
     <>
       <Navbar />
-      <main>
+      <main id="main">
         <section className="relative overflow-hidden bg-slate-950 py-24 sm:py-32">
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_85%_0%,rgba(14,165,233,0.24),transparent_26%),radial-gradient(circle_at_20%_100%,rgba(37,99,235,0.23),transparent_30%)]" />
           <div className="relative mx-auto max-w-3xl px-5 text-center sm:px-8">
@@ -22,7 +22,7 @@ export default function NotFound() {
               This page went missing.
             </h1>
             <p className="mx-auto mt-6 max-w-xl text-lg leading-8 text-slate-300">
-              The page you're looking for doesn't exist, or it may have moved. Let's get you back on track.
+              The page you&apos;re looking for doesn&apos;t exist, or it may have moved. Let&apos;s get you back on track.
             </p>
             <div className="mt-10 flex flex-wrap items-center justify-center gap-3">
               <Button href="/">

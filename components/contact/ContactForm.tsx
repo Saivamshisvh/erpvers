@@ -11,6 +11,11 @@ const services = [
   "Web applications & portals",
   "Mobile workflows",
   "ERP integrations",
+  "Infor LN training",
+  "Data analytics",
+  "Data engineering",
+  "SAP BTP",
+  "Prepaid hour credits",
   "Something else",
 ];
 

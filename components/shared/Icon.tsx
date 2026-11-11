@@ -14,7 +14,9 @@ type IconName =
   | "network"
   | "percent"
   | "portal"
-  | "shield";
+  | "shield"
+  | "users"
+  | "wrench";
 
 type IconProps = { name: IconName; className?: string };
 
@@ -35,6 +37,8 @@ const paths: Record<IconName, React.ReactNode> = {
   percent: <><circle cx="6.5" cy="6.5" r="2.5" /><circle cx="17.5" cy="17.5" r="2.5" /><path d="M19 5 5 19" /></>,
   portal: <><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M3 9h18M8 4v5" /></>,
   shield: <path d="M12 3 20 6v5c0 5-3.4 8.6-8 10-4.6-1.4-8-5-8-10V6l8-3Z" />,
+  users: <><circle cx="9" cy="8" r="3.5" /><path d="M2.5 20a6.5 6.5 0 0 1 13 0" /><path d="M16 4.6a3.5 3.5 0 0 1 0 6.8M18.5 14.2a6.5 6.5 0 0 1 3 5.8" /></>,
+  wrench: <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76Z" />,
 };
 
 export default function Icon({ name, className = "" }: IconProps) {

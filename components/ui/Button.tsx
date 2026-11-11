@@ -6,6 +6,8 @@ type ButtonProps = {
   children: ReactNode;
   variant?: "primary" | "secondary" | "dark" | "outline";
   className?: string;
+  /** Opens the link in a new tab. Use for links that leave the site. */
+  external?: boolean;
 };
 
 const styles = {
@@ -15,9 +17,19 @@ const styles = {
   outline: "border border-white/25 bg-transparent text-white hover:border-white/50 hover:bg-white/10",
 };
 
-export default function Button({ href, children, variant = "primary", className = "" }: ButtonProps) {
+export default function Button({ href, children, variant = "primary", className = "", external = false }: ButtonProps) {
+  const classes = `inline-flex items-center justify-center rounded-xl px-5 py-3 text-sm font-semibold transition-all duration-200 hover:-translate-y-0.5 ${styles[variant]} ${className}`;
+
+  if (external) {
+    return (
+      <a href={href} target="_blank" rel="noopener noreferrer" className={classes}>
+        {children}
+      </a>
+    );
+  }
+
   return (
-    <Link href={href} className={`inline-flex items-center justify-center rounded-xl px-5 py-3 text-sm font-semibold transition-all duration-200 hover:-translate-y-0.5 ${styles[variant]} ${className}`}>
+    <Link href={href} className={classes}>
       {children}
     </Link>
   );

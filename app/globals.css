@@ -11,6 +11,14 @@
 
 html {
   scroll-behavior: smooth;
+  /* Keep anchored sections clear of the sticky header */
+  scroll-padding-top: 6rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
 }
 
 body {
@@ -34,10 +42,10 @@ body {
   border-radius: 4px;
 }
 
-/* Thin, brand-tinted scrollbar */
+/* Thin, neutral scrollbar */
 html {
   scrollbar-width: thin;
-  scrollbar-color: #93c5fd #f1f5f9;
+  scrollbar-color: #cbd5e1 #f1f5f9;
 }
 
 ::-webkit-scrollbar {
@@ -50,11 +58,11 @@ html {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #93c5fd;
+  background: #cbd5e1;
   border-radius: 9999px;
   border: 2px solid #f1f5f9;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #60a5fa;
+  background: #94a3b8;
 }

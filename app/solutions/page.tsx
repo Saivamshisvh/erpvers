@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Footer from "@/components/layout/Footer";
 import Navbar from "@/components/layout/Navbar";
+import CTASection from "@/components/shared/CTASection";
 import Icon from "@/components/shared/Icon";
 import PageHero from "@/components/shared/PageHero";
 import Reveal from "@/components/shared/Reveal";
@@ -14,7 +15,7 @@ export const metadata: Metadata = {
 
 const solutions = [
   { icon: "portal" as const, title: "Partner portals", description: "Give customers and suppliers a clear, secure way to check orders, documents, delivery status, and requests." },
-  { icon: "layers" as const, title: "Operational dashboards", description: "Bring production, inventory, and order data into focused views that support faster decisions." },
+  { icon: "chart" as const, title: "Operational dashboards", description: "Bring production, inventory, and order data into focused views that support faster decisions." },
   { icon: "mobile" as const, title: "Warehouse mobility", description: "Make receiving, transfers, counting, and stock lookup practical from the warehouse floor." },
   { icon: "network" as const, title: "Connected workflows", description: "Connect ERP data to the systems and teams that need it, with traceable, dependable integrations." },
 ];
@@ -23,11 +24,11 @@ export default function SolutionsPage() {
   return (
     <>
       <Navbar />
-      <main>
+      <main id="main">
         <PageHero
           eyebrow="Solutions"
           title={<>Built for the work <span className="text-cyan-300">around your ERP.</span></>}
-          description="These are practical starting points for extending your ERP - not off-the-shelf promises. Each solution is tailored to your process and platform."
+          description="Practical starting points for extending your ERP, not off-the-shelf promises. Each one is shaped around your process and your platform."
         />
 
         <section className="bg-white py-20 sm:py-28">
@@ -50,6 +51,13 @@ export default function SolutionsPage() {
             </div>
           </div>
         </section>
+
+        <CTASection
+          background="slate"
+          eyebrow="Have a workflow in mind?"
+          title="Start with the one that causes the most friction."
+          description="Tell us what your team is working around today. We will come back with a practical way to fix it inside your existing ERP."
+        />
       </main>
       <Footer />
     </>

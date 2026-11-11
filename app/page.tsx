@@ -1,19 +1,22 @@
 import Footer from "@/components/layout/Footer";
 import Navbar from "@/components/layout/Navbar";
+import CTASection from "@/components/shared/CTASection";
 import Hero from "@/components/home/Hero";
 import HowWeWork from "@/components/home/HowWeWork";
 import Industries from "@/components/home/Industries";
 import PrepaidCredits from "@/components/shared/PrepaidCredits";
 import Services from "@/components/home/Services";
 import Solutions from "@/components/home/Solutions";
+import ToolsStrip from "@/components/home/ToolsStrip";
 import WhyERPVers from "@/components/home/WhyERPVers";
 
 export default function Home() {
   return (
     <>
       <Navbar />
-      <main>
+      <main id="main">
         <Hero />
+        <ToolsStrip />
         <Services />
         <Solutions />
         <Industries />
@@ -21,6 +24,7 @@ export default function Home() {
         <WhyERPVers />
         <HowWeWork />
         <PrepaidCredits variant="teaser" />
+        <CTASection />
       </main>
       <Footer />
     </>
