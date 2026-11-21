@@ -1,5 +1,9 @@
 type IconName =
+  | "alert"
   | "arrow"
+  | "clock"
+  | "lock"
+  | "logout"
   | "book"
   | "chart"
   | "chat"
@@ -21,7 +25,11 @@ type IconName =
 type IconProps = { name: IconName; className?: string };
 
 const paths: Record<IconName, React.ReactNode> = {
+  alert: <><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" /><path d="M12 9v4M12 17h.01" /></>,
   arrow: <path d="M5 12h14m-6-6 6 6-6 6" />,
+  clock: <><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></>,
+  lock: <><rect x="4" y="11" width="16" height="10" rx="2" /><path d="M8 11V7a4 4 0 0 1 8 0v4" /></>,
+  logout: <><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><path d="m16 17 5-5-5-5M21 12H9" /></>,
   book: <><path d="M4 5.5c2.8-1.5 5.6-1.5 8 0v14c-2.4-1.5-5.2-1.5-8 0v-14Z" /><path d="M20 5.5c-2.8-1.5-5.6-1.5-8 0v14c2.4-1.5 5.2-1.5 8 0v-14Z" /></>,
   chart: <><path d="M4 19V5m0 14h16" /><path d="m7 15 4-4 3 2 5-6" /></>,
   chat: <path d="M21 11.5a8.38 8.38 0 0 1-4.7 7.6 8.5 8.5 0 0 1-3.8.9 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5Z" />,
