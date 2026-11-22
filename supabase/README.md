@@ -1,10 +1,15 @@
 # Client portal setup
 
-The client portal lives at `/portal`. Clients register with their email and a
-password, confirm their email, and wait for you to approve them. Once approved,
-they sign in whenever they like and see their prepaid balance, monthly usage,
-and work log. You approve people, record prepaid purchases, and log hours from
-`/portal/admin`.
+The client portal lives at `/portal`. There are three kinds of account:
+
+- **Clients** see their prepaid balance, tasks, monthly usage and work log.
+  They join their company automatically when their confirmed email matches the
+  company's email domain (or an email you invited).
+- **Freelancers** see only the tasks you assign them and log hours against
+  them, up to the task's estimate plus any change requests.
+- **Admins** (you) create clients and tasks, set estimates, add change
+  requests, review freelancer hours, and record prepaid purchases at
+  `/portal/admin`.
 
 Until the two environment variables below are set, `/portal` shows a
 "being set up" message and the rest of the site is unaffected.
@@ -81,13 +86,42 @@ action runs as you, and the database checks you are an admin.
 
 ## Day to day
 
-- A client registers at `/portal/register`. They see "waiting for approval".
-- The **Admin** link shows a count of people waiting. Approve each one by
-  linking them to an existing client or creating a new one, or decline them
-  (their account is deleted).
-- Record their prepaid purchase and log hours. They see updates the next time
-  they open the portal. Clients stay signed in on their device until they sign
-  out, and can reset their own password.
+**New client**
+1. Admin -> Clients -> Add a client.
+2. On the client page, add their company email domain (e.g. `acme-mfg.com`).
+   Personal providers like gmail.com are refused; invite those people by
+   exact email instead.
+3. Their people register at `/portal/register`, confirm their email, and land
+   on the dashboard. No approval needed.
+4. Record their prepaid purchase.
+
+**New freelancer**
+1. Admin -> Freelancers -> Invite (name + email).
+2. They register with that email and see their tasks straight away.
+
+**Requirements and changes**
+1. On the client page, create a task per requirement with your hour estimate
+   and tick the freelancers who work on it.
+2. Freelancers log hours against the task. They are blocked once they reach
+   the estimate.
+3. If the client asks for changes, open the task -> Add change request with
+   the extra hours. The task's estimate grows by that amount and the
+   freelancer can log the extra work against the change request.
+4. Admin -> Hours to review: approve (you can adjust the hours) or reject with
+   a reason. Only approved hours appear to the client and count against their
+   prepaid balance. Hours you log yourself are approved straight away.
+
+**Anyone else** who registers appears under Admin -> Clients -> "Not linked
+yet", where you can link them to a client, make them a freelancer, or decline.
+
+## Keeping the free Supabase project awake
+
+Free Supabase projects pause after a week with no activity.
+`.github/workflows/keepalive.yml` calls `https://www.erpvers.com/api/keepalive`
+once a day, which runs one tiny query. It works as soon as the code is pushed
+to GitHub. If you move the site to a different address, update the URL in that
+file. You can also run it by hand: GitHub -> Actions -> "Keep client portal
+awake" -> Run workflow.
 
 ## How client data is kept private
 
@@ -95,8 +129,17 @@ action runs as you, and the database checks you are an admin.
   client can only read rows for the company you linked them to; they cannot
   write anything. This is checked by Postgres on every query, not just hidden
   in the page.
-- **Approval before access.** Anyone can register, but a new account sees
-  nothing until you approve it. Declining deletes the account.
+- **Proof of email before access.** An account is linked to a company only
+  after its email address is confirmed, so only someone who can read mail at
+  `@acme-mfg.com` can join Acme. Keep "Confirm email" switched on in
+  Supabase: with it off, anyone could type someone else's address.
+- **Freelancers see only their own work.** Only the tasks you assign them,
+  only their own hours, never purchases, balances or other clients.
+- **Clients see only reviewed hours.** Freelancer entries stay hidden from the
+  client until you approve them.
+- **Only you control estimates.** Freelancers cannot change estimates, add
+  change requests, approve hours, or assign themselves tasks. The database
+  enforces the hour limit, not just the page.
 - **No account fishing.** The registration and password-reset forms give the
   same reply whether or not an email already has an account.
 - **Passwords are never stored in readable form.** Supabase stores only a

@@ -10,7 +10,7 @@ import { getCurrentUser } from "@/lib/portal/data";
 
 export const metadata: Metadata = { title: "Create an account" };
 
-const steps = ["Create your account", "Confirm your email", "We approve and link you to your company's dashboard"];
+const steps = ["Create your account", "Confirm your email", "See your dashboard: straight away if your company or ERP VERS has given your email access, otherwise once we link you"];
 
 export default async function RegisterPage() {
   if (await getCurrentUser()) redirect("/portal");
@@ -39,14 +39,14 @@ export default async function RegisterPage() {
     >
       <AuthForm action={register} submitLabel="Create account" pendingLabel="Creating account…" successTitle="Almost there">
         <Field label="Full name" name="fullName" required maxLength={120} autoComplete="name" />
-        <Field label="Company" name="company" required maxLength={120} autoComplete="organization" />
+        <Field label="Company (optional)" name="company" maxLength={120} autoComplete="organization" />
         <Field label="Work email" name="email" type="email" required autoComplete="email" placeholder="you@company.com" />
         <Field label="Password" name="password" type="password" required minLength={8} maxLength={72} autoComplete="new-password" hint="At least 8 characters." />
         <Field label="Confirm password" name="confirmPassword" type="password" required minLength={8} maxLength={72} autoComplete="new-password" />
       </AuthForm>
       <p className="mt-5 flex gap-2 text-xs leading-5 text-slate-500">
         <Icon name="lock" className="mt-0.5 size-3.5 shrink-0" />
-        Registering doesn&apos;t show you any data. ERP VERS checks every account before linking it to a company.
+        Registering on its own shows you no data. You only see a company&apos;s dashboard if your confirmed email belongs to it.
       </p>
     </AuthCard>
   );

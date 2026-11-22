@@ -4,7 +4,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { discountForHours } from "@/lib/prepaid";
-import { getPendingRegistrations, requireAdmin, requireUser } from "@/lib/portal/data";
+import { getPendingRegistrations, requireAdmin, requireFreelancer, requireUser } from "@/lib/portal/data";
 import { isPortalConfigured } from "@/lib/supabase/config";
 import { createClient } from "@/lib/supabase/server";
 
@@ -65,7 +65,7 @@ export async function register(_prev: ActionState, form: FormData): Promise<Acti
   const confirm = String(form.get("confirmPassword") ?? "");
 
   if (fullName.length < 1 || fullName.length > 120) return fail("Enter your full name.");
-  if (company.length < 1 || company.length > 120) return fail("Enter your company name.");
+  if (company.length > 120) return fail("Company name is too long (120 characters max).");
   if (!EMAIL.test(email) || email.length > 254) return fail("Enter a valid email address.");
   const passwordProblem = checkPassword(password, confirm);
   if (passwordProblem) return fail(passwordProblem);
@@ -91,7 +91,7 @@ export async function register(_prev: ActionState, form: FormData): Promise<Acti
   // can't be used to find out who has an account.
   return {
     ok: true,
-    message: `We've sent a confirmation link to ${email}. Click it, then sign in. Your dashboard appears as soon as ERP VERS approves your account.`,
+    message: `We've sent a confirmation link to ${email}. Click it, then sign in. If your company or ERP VERS has already given your email access, your dashboard is ready straight away.`,
   };
 }
 
@@ -185,6 +185,15 @@ export async function approveRegistrationAction(_prev: ActionState, form: FormDa
   if (!pending) return fail("This registration was already handled. Refresh the page.");
 
   const supabase = await createClient();
+
+  if (target === "freelancer") {
+    const fullName = pending.full_name || pending.email.split("@")[0];
+    const { error } = await supabase.from("freelancers").insert({ user_id: userId, email: pending.email, full_name: fullName.slice(0, 120) });
+    if (error) return fail(`Could not approve: ${error.message}`);
+    refresh();
+    return { ok: true, message: `${pending.email} is now a freelancer. Assign them tasks from a client page.` };
+  }
+
   let clientId = target;
   if (target === "new") {
     const name = text(form, "newClientName") || pending.company || pending.email.split("@")[1] || pending.email;
@@ -265,7 +274,11 @@ export async function addMemberAction(_prev: ActionState, form: FormData): Promi
   if (found.error) return fail(`Could not add ${email}: ${found.error.message}`);
   const userId = found.data as string | null;
   if (!userId) {
-    return fail(`${email} hasn't registered yet. Ask them to create an account at erpvers.com/portal/register, then add them again.`);
+    const { error } = await supabase.from("client_invites").insert({ client_id: clientId, email });
+    if (error?.code === "23505") return fail(`${email} is already invited.`);
+    if (error) return fail(`Could not invite ${email}: ${error.message}`);
+    refresh(clientId);
+    return { ok: true, message: `Invited. ${email} gets access as soon as they register and confirm their email.` };
   }
 
   const { error } = await supabase.from("client_members").insert({ client_id: clientId, user_id: userId, email });
@@ -347,6 +360,8 @@ export async function addEntryAction(_prev: ActionState, form: FormData): Promis
   const consultant = text(form, "consultant");
   const description = text(form, "description");
   const hours = num(form, "hours");
+  const taskId = text(form, "taskId") || null;
+  if (taskId && !UUID.test(taskId)) return fail("Invalid task.");
 
   if (!DATE.test(workDate)) return fail("Pick the date the work was done.");
   if (consultant.length < 1 || consultant.length > 120) return fail("Enter the consultant's name.");
@@ -356,7 +371,7 @@ export async function addEntryAction(_prev: ActionState, form: FormData): Promis
   const supabase = await createClient();
   const { error } = await supabase
     .from("time_entries")
-    .insert({ client_id: clientId, work_date: workDate, consultant, description, hours });
+    .insert({ client_id: clientId, task_id: taskId, work_date: workDate, consultant, description, hours, status: "approved" });
   if (error) return fail(`Could not log the hours: ${error.message}`);
 
   refresh(clientId);
@@ -374,5 +389,337 @@ export async function deleteEntryAction(_prev: ActionState, form: FormData): Pro
   if (error) return fail(`Could not delete: ${error.message}`);
 
   refresh(clientId);
+  return { ok: true, message: "Entry deleted." };
+}
+
+// ---------------------------------------------------------------------------
+// Admin: who can see a client's dashboard (domains and invites)
+// ---------------------------------------------------------------------------
+
+const DOMAIN = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/;
+
+export async function addDomainAction(_prev: ActionState, form: FormData): Promise<ActionState> {
+  await requireAdmin();
+  const clientId = clientIdFrom(form);
+  const domain = text(form, "domain").toLowerCase().replace(/^@/, "").replace(/^www\./, "");
+  if (!DOMAIN.test(domain) || domain.length > 253) return fail("Enter a domain like acme-mfg.com (without the @).");
+
+  const supabase = await createClient();
+  const { error } = await supabase.from("client_domains").insert({ domain, client_id: clientId });
+  if (error?.code === "23514") return fail(`${domain} is a personal email provider, so it can't be a company domain. Invite people by their exact email instead.`);
+  if (error?.code === "23505") return fail(`${domain} is already linked to a client.`);
+  if (error) return fail(`Could not add the domain: ${error.message}`);
+
+  const linked = await supabase.rpc("link_existing_users");
+  const n = Number(linked.data ?? 0);
+  refresh(clientId);
+  return {
+    ok: true,
+    message: `Anyone who confirms an @${domain} email now joins automatically.${n > 0 ? ` ${n} existing ${n === 1 ? "account was" : "accounts were"} linked.` : ""}`,
+  };
+}
+
+export async function removeDomainAction(_prev: ActionState, form: FormData): Promise<ActionState> {
+  await requireAdmin();
+  const clientId = clientIdFrom(form);
+  const domain = text(form, "domain");
+  const supabase = await createClient();
+  const { error } = await supabase.from("client_domains").delete().eq("domain", domain).eq("client_id", clientId);
+  if (error) return fail(`Could not remove: ${error.message}`);
+  refresh(clientId);
+  return { ok: true, message: "Domain removed. People already linked keep access until you remove them." };
+}
+
+export async function removeInviteAction(_prev: ActionState, form: FormData): Promise<ActionState> {
+  await requireAdmin();
+  const clientId = clientIdFrom(form);
+  const email = text(form, "email");
+  const supabase = await createClient();
+  const { error } = await supabase.from("client_invites").delete().eq("client_id", clientId).eq("email", email);
+  if (error) return fail(`Could not remove: ${error.message}`);
+  refresh(clientId);
+  return { ok: true, message: "Invite removed." };
+}
+
+// ---------------------------------------------------------------------------
+// Admin: tasks and change requests
+// ---------------------------------------------------------------------------
+
+function taskIdFrom(form: FormData) {
+  const id = text(form, "taskId");
+  if (!UUID.test(id)) throw new Error("Invalid task id");
+  return id;
+}
+
+function readTaskFields(form: FormData) {
+  const title = text(form, "title");
+  const description = text(form, "description");
+  const estimate = num(form, "estimateHours");
+  const assignees = form.getAll("assignees").map(String).filter((id) => UUID.test(id));
+  if (title.length < 1 || title.length > 160) return { error: "Give the task a title (up to 160 characters)." };
+  if (description.length > 2000) return { error: "Description is too long (2,000 characters max)." };
+  if (!Number.isFinite(estimate) || estimate < 0) return { error: "Estimate must be 0 hours or more." };
+  return { title, description: description || null, estimate, assignees };
+}
+
+export async function createTaskAction(_prev: ActionState, form: FormData): Promise<ActionState> {
+  await requireAdmin();
+  const clientId = clientIdFrom(form);
+  const fields = readTaskFields(form);
+  if ("error" in fields) return fail(fields.error!);
+
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("tasks")
+    .insert({ client_id: clientId, title: fields.title, description: fields.description, estimate_hours: fields.estimate })
+    .select("id")
+    .single();
+  if (error) return fail(`Could not create the task: ${error.message}`);
+
+  if (fields.assignees.length > 0) {
+    const assign = await supabase.from("task_assignments").insert(fields.assignees.map((user_id) => ({ task_id: data.id, user_id })));
+    if (assign.error) return fail(`Task created, but assigning failed: ${assign.error.message}`);
+  }
+
+  refresh(clientId);
+  return { ok: true, message: `Task created with a ${fields.estimate}-hour estimate.` };
+}
+
+export async function updateTaskAction(_prev: ActionState, form: FormData): Promise<ActionState> {
+  await requireAdmin();
+  const clientId = clientIdFrom(form);
+  const taskId = taskIdFrom(form);
+  const fields = readTaskFields(form);
+  if ("error" in fields) return fail(fields.error!);
+  const status = text(form, "status") === "done" ? "done" : "open";
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("tasks")
+    .update({ title: fields.title, description: fields.description, estimate_hours: fields.estimate, status })
+    .eq("id", taskId)
+    .eq("client_id", clientId);
+  if (error) return fail(`Could not save the task: ${error.message}`);
+
+  // Replace assignments with the boxes that are ticked.
+  const current = await supabase.from("task_assignments").select("user_id").eq("task_id", taskId);
+  if (current.error) return fail(current.error.message);
+  const have = new Set((current.data ?? []).map((a) => a.user_id));
+  const want = new Set(fields.assignees);
+  const remove = [...have].filter((id) => !want.has(id));
+  const add = [...want].filter((id) => !have.has(id));
+  if (remove.length) {
+    const r = await supabase.from("task_assignments").delete().eq("task_id", taskId).in("user_id", remove);
+    if (r.error) return fail(r.error.message);
+  }
+  if (add.length) {
+    const a = await supabase.from("task_assignments").insert(add.map((user_id) => ({ task_id: taskId, user_id })));
+    if (a.error) return fail(a.error.message);
+  }
+
+  refresh(clientId);
+  return { ok: true, message: "Task saved." };
+}
+
+export async function deleteTaskAction(_prev: ActionState, form: FormData): Promise<ActionState> {
+  await requireAdmin();
+  const clientId = clientIdFrom(form);
+  const taskId = taskIdFrom(form);
+  const supabase = await createClient();
+  const { error } = await supabase.from("tasks").delete().eq("id", taskId).eq("client_id", clientId);
+  if (error?.code === "23503") return fail("This task has hours logged against it, so it can't be deleted. Mark it done instead.");
+  if (error) return fail(`Could not delete: ${error.message}`);
+  refresh(clientId);
+  return { ok: true, message: "Task deleted." };
+}
+
+export async function addChangeRequestAction(_prev: ActionState, form: FormData): Promise<ActionState> {
+  await requireAdmin();
+  const clientId = clientIdFrom(form);
+  const taskId = taskIdFrom(form);
+  const title = text(form, "title");
+  const description = text(form, "description");
+  const hours = num(form, "hours");
+  const requestedOn = text(form, "requestedOn");
+  if (title.length < 1 || title.length > 160) return fail("Describe the change in a short title.");
+  if (description.length > 2000) return fail("Description is too long (2,000 characters max).");
+  if (!Number.isFinite(hours) || hours <= 0) return fail("Additional hours must be more than 0.");
+  if (!DATE.test(requestedOn)) return fail("Pick the date the change was requested.");
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("change_requests")
+    .insert({ task_id: taskId, title, description: description || null, hours, requested_on: requestedOn });
+  if (error) return fail(`Could not add the change request: ${error.message}`);
+
+  // Re-open a finished task so the freelancer can log the extra work.
+  await supabase.from("tasks").update({ status: "open" }).eq("id", taskId).eq("client_id", clientId);
+
+  refresh(clientId);
+  return { ok: true, message: `Change request added: +${hours} hours.` };
+}
+
+export async function deleteChangeRequestAction(_prev: ActionState, form: FormData): Promise<ActionState> {
+  await requireAdmin();
+  const clientId = clientIdFrom(form);
+  const id = text(form, "id");
+  if (!UUID.test(id)) return fail("Invalid change request.");
+  const supabase = await createClient();
+  const { error } = await supabase.from("change_requests").delete().eq("id", id);
+  if (error?.code === "23503") return fail("Hours are logged against this change request, so it can't be deleted.");
+  if (error) return fail(`Could not delete: ${error.message}`);
+  refresh(clientId);
+  return { ok: true, message: "Change request deleted." };
+}
+
+// ---------------------------------------------------------------------------
+// Admin: reviewing freelancer hours
+// ---------------------------------------------------------------------------
+
+export async function reviewEntryAction(_prev: ActionState, form: FormData): Promise<ActionState> {
+  const admin = await requireAdmin();
+  const id = text(form, "id");
+  const decision = text(form, "decision");
+  const note = text(form, "note");
+  const hoursRaw = text(form, "hours");
+  if (!UUID.test(id)) return fail("Invalid entry.");
+  if (decision !== "approve" && decision !== "reject") return fail("Choose approve or reject.");
+  if (note.length > 500) return fail("Note is too long (500 characters max).");
+  if (decision === "reject" && !note) return fail("Add a short reason so the freelancer knows what to fix.");
+
+  const update: Record<string, unknown> = {
+    status: decision === "approve" ? "approved" : "rejected",
+    review_note: note || null,
+    reviewed_by: admin.id,
+    reviewed_at: new Date().toISOString(),
+  };
+  if (decision === "approve" && hoursRaw !== "") {
+    const hours = Number(hoursRaw);
+    if (!Number.isFinite(hours) || hours <= 0 || hours > 24) return fail("Hours must be more than 0 and at most 24.");
+    update.hours = hours;
+  }
+
+  const supabase = await createClient();
+  const { data, error } = await supabase.from("time_entries").update(update).eq("id", id).eq("status", "pending").select("client_id").maybeSingle();
+  if (error) return fail(`Could not save: ${error.message}`);
+  if (!data) return fail("This entry was already reviewed. Refresh the page.");
+
+  refresh(data.client_id);
+  return { ok: true, message: decision === "approve" ? "Approved. The client can see it now." : "Rejected. The freelancer can see your note." };
+}
+
+// ---------------------------------------------------------------------------
+// Admin: freelancers
+// ---------------------------------------------------------------------------
+
+export async function inviteFreelancerAction(_prev: ActionState, form: FormData): Promise<ActionState> {
+  await requireAdmin();
+  const email = text(form, "email").toLowerCase();
+  const fullName = text(form, "fullName");
+  if (!EMAIL.test(email) || email.length > 254) return fail("Enter a valid email address.");
+  if (fullName.length < 1 || fullName.length > 120) return fail("Enter the freelancer's name. Clients see it in their work log.");
+
+  const supabase = await createClient();
+  const { error } = await supabase.from("freelancer_invites").insert({ email, full_name: fullName });
+  if (error?.code === "23505") return fail(`${email} is already invited.`);
+  if (error) return fail(`Could not invite: ${error.message}`);
+
+  const linked = await supabase.rpc("link_existing_users");
+  refresh();
+  revalidatePath("/portal/admin/freelancers");
+  return Number(linked.data ?? 0) > 0
+    ? { ok: true, message: `${fullName} already had an account and is now a freelancer.` }
+    : { ok: true, message: `Invited. ${fullName} becomes a freelancer as soon as they register at erpvers.com/portal/register with ${email}.` };
+}
+
+export async function revokeFreelancerInviteAction(_prev: ActionState, form: FormData): Promise<ActionState> {
+  await requireAdmin();
+  const email = text(form, "email");
+  const supabase = await createClient();
+  const { error } = await supabase.from("freelancer_invites").delete().eq("email", email);
+  if (error) return fail(`Could not remove: ${error.message}`);
+  revalidatePath("/portal/admin/freelancers");
+  return { ok: true, message: "Invite removed." };
+}
+
+export async function setFreelancerActiveAction(_prev: ActionState, form: FormData): Promise<ActionState> {
+  await requireAdmin();
+  const userId = text(form, "userId");
+  const active = text(form, "active") === "true";
+  if (!UUID.test(userId)) return fail("Invalid freelancer.");
+  const supabase = await createClient();
+  const { error } = await supabase.from("freelancers").update({ active }).eq("user_id", userId);
+  if (error) return fail(`Could not save: ${error.message}`);
+  refresh();
+  revalidatePath("/portal/admin/freelancers");
+  return { ok: true, message: active ? "Access restored." : "Access removed. Their past hours stay on record." };
+}
+
+// ---------------------------------------------------------------------------
+// Freelancers: logging hours
+// ---------------------------------------------------------------------------
+
+function friendlyEntryError(message: string) {
+  const exceeded = message.match(/ESTIMATE_EXCEEDED:([\d.]+)/);
+  if (exceeded) {
+    const left = Number(exceeded[1]);
+    return left > 0
+      ? `Only ${left} hours are left on this task's estimate. If the work needs more, ask ERP VERS to add a change request.`
+      : "This task's estimate is used up. Ask ERP VERS to add a change request if more work is needed.";
+  }
+  if (message.includes("TASK_CLOSED")) return "This task is marked done, so hours can't be logged on it.";
+  if (message.includes("CHANGE_REQUEST_MISMATCH")) return "That change request belongs to a different task.";
+  if (message.includes("row-level security")) return "You're not assigned to this task.";
+  return `Could not log the hours: ${message}`;
+}
+
+export async function logHoursAction(_prev: ActionState, form: FormData): Promise<ActionState> {
+  await requireFreelancer();
+  const taskId = text(form, "taskId");
+  const changeRequestId = text(form, "changeRequestId") || null;
+  const workDate = text(form, "workDate");
+  const description = text(form, "description");
+  const hours = num(form, "hours");
+
+  if (!UUID.test(taskId)) return fail("Pick a task.");
+  if (changeRequestId && !UUID.test(changeRequestId)) return fail("Invalid change request.");
+  if (!DATE.test(workDate)) return fail("Pick the date you did the work.");
+  const tomorrow = new Date(Date.now() + 36 * 3600 * 1000).toISOString().slice(0, 10);
+  if (workDate > tomorrow) return fail("You can't log hours for a future date.");
+  if (description.length < 1 || description.length > 1000) return fail("Describe the work (up to 1,000 characters).");
+  if (!Number.isFinite(hours) || hours <= 0 || hours > 24) return fail("Hours must be more than 0 and at most 24.");
+
+  const supabase = await createClient();
+  const task = await supabase.from("tasks").select("client_id").eq("id", taskId).maybeSingle();
+  if (!task.data) return fail("You're not assigned to this task.");
+
+  const user = await requireUser();
+  const { error } = await supabase.from("time_entries").insert({
+    client_id: task.data.client_id,
+    task_id: taskId,
+    change_request_id: changeRequestId,
+    work_date: workDate,
+    description,
+    hours,
+    consultant: "-",
+    status: "pending",
+    created_by: user.id,
+  });
+  if (error) return fail(friendlyEntryError(error.message));
+
+  revalidatePath("/portal/work");
+  revalidatePath("/portal", "layout");
+  return { ok: true, message: `Logged ${hours} hours. ERP VERS will review them before the client sees them.` };
+}
+
+export async function deleteMyEntryAction(_prev: ActionState, form: FormData): Promise<ActionState> {
+  await requireFreelancer();
+  const id = text(form, "id");
+  if (!UUID.test(id)) return fail("Invalid entry.");
+  const supabase = await createClient();
+  const { data, error } = await supabase.from("time_entries").delete().eq("id", id).eq("status", "pending").select("id");
+  if (error) return fail(`Could not delete: ${error.message}`);
+  if (!data?.length) return fail("Only entries still waiting for review can be deleted.");
+  revalidatePath("/portal/work");
   return { ok: true, message: "Entry deleted." };
 }

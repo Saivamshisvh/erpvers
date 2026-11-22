@@ -2,11 +2,12 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import Dashboard from "@/components/portal/Dashboard";
 import Icon from "@/components/shared/Icon";
-import { getDashboardData, getIsAdmin, getVisibleClients, requireUser } from "@/lib/portal/data";
+import { getDashboardData, getFreelancerProfile, getIsAdmin, getVisibleClients, requireUser } from "@/lib/portal/data";
 
 export default async function PortalHome({ searchParams }: { searchParams: Promise<{ client?: string }> }) {
   const user = await requireUser();
   if (await getIsAdmin()) redirect("/portal/admin");
+  if (await getFreelancerProfile()) redirect("/portal/work");
 
   const clients = await getVisibleClients();
   if (clients.length === 0) {
@@ -17,12 +18,11 @@ export default async function PortalHome({ searchParams }: { searchParams: Promi
             <Icon name="clock" className="size-5" />
           </span>
           <h1 className="mt-5 text-2xl font-bold tracking-tight text-slate-950">
-            {user.fullName ? `Thanks, ${user.fullName.split(" ")[0]}. ` : ""}Your account is waiting for approval
+            {user.fullName ? `Thanks, ${user.fullName.split(" ")[0]}. ` : ""}We haven&apos;t matched your account yet
           </h1>
           <p className="mt-3 leading-7 text-slate-600">
-            ERP VERS checks every new account before linking it to a company&apos;s dashboard. This usually takes one
-            business day. You don&apos;t need to do anything else: sign in any time, and your hours will be here once
-            you&apos;re approved.
+            Your email isn&apos;t linked to a company&apos;s dashboard yet. ERP VERS links new accounts after checking
+            who they belong to. Sign in any time: your dashboard will be here as soon as you&apos;re linked.
           </p>
           <dl className="mt-6 grid gap-3 rounded-xl bg-slate-50 p-4 text-sm sm:grid-cols-[auto_1fr] sm:gap-x-6">
             <dt className="font-semibold text-slate-500">Email</dt>

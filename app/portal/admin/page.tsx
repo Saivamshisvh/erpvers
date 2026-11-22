@@ -1,29 +1,31 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import ActionForm from "@/components/portal/ActionForm";
+import AdminNav from "@/components/portal/AdminNav";
 import { Field, Panel, inputClass } from "@/components/portal/fields";
 import { approveRegistrationAction, createClientAction, declineRegistrationAction } from "@/lib/portal/actions";
-import { getAdminOverview, getPendingRegistrations, requireAdmin } from "@/lib/portal/data";
+import { getAdminOverview, getPendingRegistrations, getReviewQueue, requireAdmin } from "@/lib/portal/data";
 import { formatDate, formatHours } from "@/lib/portal/format";
 
 export const metadata: Metadata = { title: "Admin" };
 
 export default async function AdminHome() {
   await requireAdmin();
-  const [clients, pending] = await Promise.all([getAdminOverview(), getPendingRegistrations()]);
+  const [clients, pending, queue] = await Promise.all([getAdminOverview(), getPendingRegistrations(), getReviewQueue()]);
 
   return (
     <div className="mx-auto max-w-7xl px-5 py-10 sm:px-8 sm:py-12 lg:px-10">
       <p className="text-sm font-bold uppercase tracking-[0.16em] text-blue-600">Admin</p>
       <h1 className="mt-2 text-3xl font-bold tracking-tight text-slate-950">Clients</h1>
+      <AdminNav current="clients" reviewCount={queue.length} registrationCount={pending.length} />
 
       {pending.length > 0 && (
         <section className="mt-8 rounded-2xl border border-amber-200 bg-amber-50/60 p-5 sm:p-6" aria-labelledby="pending-heading">
           <h2 id="pending-heading" className="text-base font-bold tracking-tight text-slate-950">
-            Waiting for approval <span className="ml-1 rounded-full bg-amber-100 px-2 py-0.5 text-sm text-amber-800">{pending.length}</span>
+            Not linked yet <span className="ml-1 rounded-full bg-amber-100 px-2 py-0.5 text-sm text-amber-800">{pending.length}</span>
           </h2>
           <p className="mt-1 text-sm text-slate-600">
-            Approve someone by linking them to their company. They see nothing until you do.
+            These accounts didn&apos;t match any company domain or invite. Link each one to a client or make them a freelancer. They see nothing until you do.
           </p>
           <ul className="mt-5 grid gap-3">
             {pending.map((r) => {
@@ -49,6 +51,7 @@ export default async function AdminHome() {
                           <span className="text-xs font-semibold text-slate-600">Link to</span>
                           <select name="target" defaultValue={match?.id ?? "new"} className={inputClass}>
                             <option value="new">New client</option>
+                            <option value="freelancer">Freelancer (not a client)</option>
                             {clients.map((c) => (
                               <option key={c.id} value={c.id}>
                                 {c.name}
@@ -85,14 +88,15 @@ export default async function AdminHome() {
           {clients.length === 0 ? (
             <p className="px-6 py-12 text-center text-sm text-slate-500">No clients yet. Add your first one.</p>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[640px] text-left text-sm">
+            <div className="relative overflow-x-auto">
+              <table className="w-full min-w-[720px] text-left text-sm">
                 <thead className="border-b border-slate-100 text-xs font-semibold uppercase tracking-wider text-slate-500">
                   <tr>
                     <th scope="col" className="px-6 py-3">Client</th>
                     <th scope="col" className="px-3 py-3 text-right">Purchased</th>
                     <th scope="col" className="px-3 py-3 text-right">Used</th>
                     <th scope="col" className="px-3 py-3 text-right">Remaining</th>
+                    <th scope="col" className="px-3 py-3 text-right">To review</th>
                     <th scope="col" className="px-6 py-3">Last logged</th>
                   </tr>
                 </thead>
@@ -115,6 +119,7 @@ export default async function AdminHome() {
                           <span className="font-semibold tabular-nums text-slate-900">{formatHours(c.remaining)}</span>
                           {status && <span className={`ml-2 rounded-full px-2 py-0.5 text-xs font-semibold ${status.cls}`}>{status.label}</span>}
                         </td>
+                        <td className="px-3 py-4 text-right tabular-nums text-amber-700">{c.pendingHours > 0 ? `${formatHours(c.pendingHours)} h` : ""}</td>
                         <td className="px-6 py-4 text-slate-500">{c.lastEntryDate ? formatDate(c.lastEntryDate) : "-"}</td>
                       </tr>
                     );
@@ -125,7 +130,7 @@ export default async function AdminHome() {
           )}
         </section>
 
-        <Panel title="Add a client" description="Create the company first, then add the people who should see its dashboard.">
+        <Panel title="Add a client" description="Create the company, then add its email domain so its people join automatically.">
           <ActionForm action={createClientAction} submitLabel="Create client" pendingLabel="Creating…">
             <Field label="Company name" name="name" required maxLength={120} placeholder="Acme Manufacturing" />
           </ActionForm>

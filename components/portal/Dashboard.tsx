@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import Icon from "@/components/shared/Icon";
+import TaskCard from "@/components/portal/TaskCard";
 import UsageChart from "@/components/portal/UsageChart";
 import type { DashboardData, Purchase, TimeEntry } from "@/lib/portal/data";
 import { formatDate, formatHours } from "@/lib/portal/format";
@@ -12,7 +13,7 @@ type DashboardProps = {
 };
 
 export default function Dashboard({ data, entryAction, purchaseAction }: DashboardProps) {
-  const { client, summary, entries, purchases, members, monthly } = data;
+  const { client, summary, entries, purchases, members, monthly, tasks } = data;
 
   return (
     <div className="grid gap-6 [&>*]:min-w-0">
@@ -50,6 +51,17 @@ export default function Dashboard({ data, entryAction, purchaseAction }: Dashboa
         <UsageChart data={monthly} />
       </section>
 
+      {tasks.length > 0 && (
+        <section aria-labelledby="tasks-heading">
+          <h2 id="tasks-heading" className="mb-4 text-base font-bold tracking-tight text-slate-950">Tasks</h2>
+          <div className="grid gap-4 lg:grid-cols-2 [&>*]:min-w-0">
+            {tasks.map((task) => (
+              <TaskCard key={task.id} task={task} />
+            ))}
+          </div>
+        </section>
+      )}
+
       {/* Work log */}
       <section className="rounded-2xl border border-slate-200 bg-white">
         <div className="flex items-baseline justify-between gap-4 border-b border-slate-100 px-5 py-4 sm:px-7">
@@ -59,7 +71,7 @@ export default function Dashboard({ data, entryAction, purchaseAction }: Dashboa
         {entries.length === 0 ? (
           <p className="px-5 py-10 text-center text-sm text-slate-500 sm:px-7">No hours have been logged yet.</p>
         ) : (
-          <div className="overflow-x-auto">
+          <div className="relative overflow-x-auto">
             <table className="w-full min-w-[640px] text-left text-sm">
               <thead className="text-xs font-semibold uppercase tracking-wider text-slate-500">
                 <tr>
@@ -75,7 +87,15 @@ export default function Dashboard({ data, entryAction, purchaseAction }: Dashboa
                   <tr key={entry.id} className="align-top">
                     <td className="whitespace-nowrap px-5 py-3.5 text-slate-600 sm:px-7">{formatDate(entry.work_date)}</td>
                     <td className="whitespace-nowrap px-3 py-3.5 font-medium text-slate-900">{entry.consultant}</td>
-                    <td className="px-3 py-3.5 leading-6 text-slate-600">{entry.description}</td>
+                    <td className="px-3 py-3.5 leading-6 text-slate-600">
+                      {entry.description}
+                      {entry.task_title && (
+                        <span className="mt-0.5 block text-xs text-slate-400">
+                          {entry.task_title}
+                          {entry.change_request_title && ` · Change: ${entry.change_request_title}`}
+                        </span>
+                      )}
+                    </td>
                     <td className="px-5 py-3.5 text-right font-semibold tabular-nums text-slate-900 sm:px-7">{formatHours(entry.hours)}</td>
                     {entryAction && <td className="px-5 py-3.5 text-right">{entryAction(entry)}</td>}
                   </tr>
@@ -93,7 +113,7 @@ export default function Dashboard({ data, entryAction, purchaseAction }: Dashboa
           {purchases.length === 0 ? (
             <p className="px-5 py-10 text-center text-sm text-slate-500 sm:px-7">No prepaid hours recorded yet.</p>
           ) : (
-            <div className="overflow-x-auto">
+            <div className="relative overflow-x-auto">
               <table className="w-full min-w-[420px] text-left text-sm">
                 <thead className="text-xs font-semibold uppercase tracking-wider text-slate-500">
                   <tr>

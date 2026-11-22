@@ -5,7 +5,7 @@ export default function robots(): MetadataRoute.Robots {
     rules: {
       userAgent: "*",
       allow: "/",
-      disallow: ["/portal", "/auth"],
+      disallow: ["/portal", "/auth", "/api"],
     },
     sitemap: "https://erpvers.com/sitemap.xml",
   };

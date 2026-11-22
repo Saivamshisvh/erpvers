@@ -4,7 +4,7 @@ import { connection } from "next/server";
 import Icon from "@/components/shared/Icon";
 import Logo from "@/components/shared/Logo";
 import { signOut } from "@/lib/portal/actions";
-import { getCurrentUser, getIsAdmin, getPendingRegistrations } from "@/lib/portal/data";
+import { getCurrentUser, getFreelancerProfile, getIsAdmin, getPendingRegistrations, getReviewQueue } from "@/lib/portal/data";
 import { isPortalConfigured } from "@/lib/supabase/config";
 
 export const metadata: Metadata = {
@@ -19,7 +19,10 @@ export default async function PortalLayout({ children }: { children: React.React
   const configured = isPortalConfigured();
   const user = configured ? await getCurrentUser() : null;
   const isAdmin = user ? await getIsAdmin() : false;
-  const pendingCount = isAdmin ? (await getPendingRegistrations()).length : 0;
+  const pendingCount = isAdmin
+    ? (await Promise.all([getPendingRegistrations(), getReviewQueue()])).reduce((n, list) => n + list.length, 0)
+    : 0;
+  const isFreelancer = user && !isAdmin ? Boolean(await getFreelancerProfile()) : false;
 
   return (
     <div className="flex min-h-screen flex-col bg-slate-50">
@@ -34,11 +37,16 @@ export default async function PortalLayout({ children }: { children: React.React
           </div>
           {user && (
             <div className="flex items-center gap-3 sm:gap-5">
+              {isFreelancer && (
+                <Link href="/portal/work" className="text-sm font-semibold text-blue-600 hover:text-blue-800">
+                  My tasks
+                </Link>
+              )}
               {isAdmin && (
                 <Link href="/portal/admin" className="inline-flex items-center gap-1.5 text-sm font-semibold text-blue-600 hover:text-blue-800">
                   Admin
                   {pendingCount > 0 && (
-                    <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-xs font-bold text-amber-800" aria-label={`${pendingCount} waiting for approval`}>
+                    <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-xs font-bold text-amber-800" aria-label={`${pendingCount} items need your attention`}>
                       {pendingCount}
                     </span>
                   )}
