@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
 import Icon from "@/components/shared/Icon";
+import AwaitingApproval, { type EmailState } from "@/components/portal/AwaitingApproval";
+import StatusBadge from "@/components/portal/StatusBadge";
 import TaskCard from "@/components/portal/TaskCard";
 import UsageChart from "@/components/portal/UsageChart";
 import type { DashboardData, Purchase, TimeEntry } from "@/lib/portal/data";
@@ -10,13 +12,19 @@ type DashboardProps = {
   /** Admin-only extra cell per row (e.g. a Delete button). Clients never get this. */
   entryAction?: (entry: TimeEntry) => ReactNode;
   purchaseAction?: (purchase: Purchase) => ReactNode;
+  /** "client" (default) lets the viewer approve hours; "admin" shows email controls instead. */
+  mode?: "client" | "admin";
+  emailState?: EmailState;
 };
 
-export default function Dashboard({ data, entryAction, purchaseAction }: DashboardProps) {
-  const { client, summary, entries, purchases, members, monthly, tasks } = data;
+export default function Dashboard({ data, entryAction, purchaseAction, mode = "client", emailState }: DashboardProps) {
+  const { client, summary, entries, purchases, members, monthly, tasks, awaiting } = data;
 
   return (
     <div className="grid gap-6 [&>*]:min-w-0">
+      {awaiting.length > 0 && (
+        <AwaitingApproval clientId={client.id} entries={awaiting} totalHours={summary.awaitingHours} mode={mode} emailState={emailState} />
+      )}
       {summary.isOverdrawn && (
         <Alert tone="critical" title={`${formatHours(Math.abs(summary.remaining))} hours over your prepaid balance`}>
           Hours logged are now more than the hours purchased. Get in touch to top up your prepaid block.
@@ -72,13 +80,14 @@ export default function Dashboard({ data, entryAction, purchaseAction }: Dashboa
           <p className="px-5 py-10 text-center text-sm text-slate-500 sm:px-7">No hours have been logged yet.</p>
         ) : (
           <div className="relative overflow-x-auto">
-            <table className="w-full min-w-[640px] text-left text-sm">
+            <table className="w-full min-w-[760px] text-left text-sm">
               <thead className="text-xs font-semibold uppercase tracking-wider text-slate-500">
                 <tr>
                   <th scope="col" className="px-5 py-3 sm:px-7">Date</th>
                   <th scope="col" className="px-3 py-3">Consultant</th>
                   <th scope="col" className="px-3 py-3">Work done</th>
-                  <th scope="col" className="px-5 py-3 text-right sm:px-7">Hours</th>
+                  <th scope="col" className="px-3 py-3 text-right">Hours</th>
+                  <th scope="col" className="px-5 py-3 sm:px-7">Status</th>
                   {entryAction && <th scope="col" className="px-5 py-3"><span className="sr-only">Actions</span></th>}
                 </tr>
               </thead>
@@ -96,7 +105,10 @@ export default function Dashboard({ data, entryAction, purchaseAction }: Dashboa
                         </span>
                       )}
                     </td>
-                    <td className="px-5 py-3.5 text-right font-semibold tabular-nums text-slate-900 sm:px-7">{formatHours(entry.hours)}</td>
+                    <td className="px-3 py-3.5 text-right font-semibold tabular-nums text-slate-900">{formatHours(entry.hours)}</td>
+                    <td className="px-5 py-3.5 sm:px-7">
+                      <StatusBadge status={entry.status} audience={mode === "admin" ? "admin" : "client"} />
+                    </td>
                     {entryAction && <td className="px-5 py-3.5 text-right">{entryAction(entry)}</td>}
                   </tr>
                 ))}

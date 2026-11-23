@@ -8,8 +8,8 @@ type ActionFormProps = {
   children?: ReactNode;
   submitLabel: string;
   pendingLabel?: string;
-  /** "primary" is a full button; "subtle" is a small text button for row actions like Delete. */
-  variant?: "primary" | "subtle";
+  /** "primary" is a full button; "compact" a small outlined button; "subtle" a small text button for row actions like Delete. */
+  variant?: "primary" | "compact" | "subtle";
   /** Asks the person to confirm before submitting (used for deletes). */
   confirmMessage?: string;
   resetOnSuccess?: boolean;
@@ -40,6 +40,26 @@ export default function ActionForm({
     if (confirmMessage && !window.confirm(confirmMessage)) return;
     const data = new FormData(event.currentTarget);
     startTransition(() => formAction(data));
+  }
+
+  if (variant === "compact") {
+    return (
+      <form ref={formRef} action={formAction} onSubmit={handleSubmit} className={className}>
+        {children}
+        <button
+          type="submit"
+          disabled={pending}
+          className="cursor-pointer whitespace-nowrap rounded-lg border border-blue-200 bg-white px-3 py-1.5 text-xs font-semibold text-blue-700 transition-colors hover:border-blue-300 hover:bg-blue-50 disabled:cursor-wait disabled:opacity-60"
+        >
+          {pending ? pendingLabel : submitLabel}
+        </button>
+        {state && (
+          <p role={state.ok ? "status" : "alert"} className={`mt-1 text-xs ${state.ok ? "text-emerald-700" : "text-red-600"}`}>
+            {state.message}
+          </p>
+        )}
+      </form>
+    );
   }
 
   if (variant === "subtle") {

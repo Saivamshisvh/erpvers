@@ -11,6 +11,11 @@ The client portal lives at `/portal`. There are three kinds of account:
   requests, review freelancer hours, and record prepaid purchases at
   `/portal/admin`.
 
+How hours flow: a freelancer logs hours -> you review them -> the client gets
+an email from your support address and approves them in the portal. Clients can
+only approve; if something looks wrong they contact you, and you fix or delete
+the entry. Hours count against the prepaid balance once you've sent them.
+
 Until the two environment variables below are set, `/portal` shows a
 "being set up" message and the rest of the site is unaffected.
 
@@ -69,6 +74,23 @@ Production (and Preview if you want):
 | `SUPABASE_URL`      | Project URL, `https://xxxx.supabase.co` |
 | `SUPABASE_ANON_KEY` | the anon / publishable key              |
 
+For the approval emails, also add your mailbox's SMTP settings:
+
+| Name            | Value                                                        |
+| --------------- | ------------------------------------------------------------ |
+| `SMTP_HOST`     | e.g. `smtp.gmail.com` (Google Workspace) or `smtp.zoho.in` (Zoho) |
+| `SMTP_PORT`     | `465`                                                        |
+| `SMTP_USER`     | `support@erpvers.com`                                        |
+| `SMTP_PASS`     | an app password for that mailbox (not your normal password). Mark it **Sensitive**. |
+| `MAIL_FROM`     | `ERP VERS <support@erpvers.com>`                             |
+| `SITE_URL`      | `https://www.erpvers.com` (used for the link in emails)      |
+
+Google Workspace: turn on 2-step verification for the mailbox, then create an
+app password at myaccount.google.com/apppasswords. Zoho Mail: My Account ->
+Security -> App Passwords. Until these are set, everything still works; the
+client simply sees the hours when they sign in, and the admin page tells you
+no email went out.
+
 Then redeploy. The site never needs the service_role / secret key: every admin
 action runs as you, and the database checks you are an admin.
 
@@ -108,8 +130,12 @@ action runs as you, and the database checks you are an admin.
    the extra hours. The task's estimate grows by that amount and the
    freelancer can log the extra work against the change request.
 4. Admin -> Hours to review: approve (you can adjust the hours) or reject with
-   a reason. Only approved hours appear to the client and count against their
-   prepaid balance. Hours you log yourself are approved straight away.
+   a reason. Approving sends the hours to the client: they get one email and
+   approve in the portal. "Approve all" sends a whole batch in a single email.
+   Hours you log yourself go to the client the same way.
+5. On the client page, "Awaiting the client's approval" shows what they
+   haven't approved yet. "Email client" resends (or reminds), and "Mark
+   approved" records an approval they gave you by email or phone.
 
 **Anyone else** who registers appears under Admin -> Clients -> "Not linked
 yet", where you can link them to a client, make them a freelancer, or decline.
@@ -137,6 +163,9 @@ awake" -> Run workflow.
   only their own hours, never purchases, balances or other clients.
 - **Clients see only reviewed hours.** Freelancer entries stay hidden from the
   client until you approve them.
+- **Clients can only approve.** The database allows exactly one change from a
+  client: marking hours that were sent to them as approved. They cannot edit,
+  reject or delete anything.
 - **Only you control estimates.** Freelancers cannot change estimates, add
   change requests, approve hours, or assign themselves tasks. The database
   enforces the hour limit, not just the page.

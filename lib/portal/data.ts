@@ -7,7 +7,7 @@ import { createClient } from "@/lib/supabase/server";
 
 export type Client = { id: string; name: string; low_balance_hours: number; created_at: string };
 export type Purchase = { id: string; hours: number; discount_pct: number; purchased_on: string; reference: string | null };
-export type EntryStatus = "pending" | "approved" | "rejected";
+export type EntryStatus = "pending" | "awaiting_client" | "approved" | "rejected";
 export type TimeEntry = {
   id: string;
   work_date: string;
@@ -32,7 +32,9 @@ export type Task = {
   created_at: string;
   changeRequests: ChangeRequest[];
   totalEstimate: number;
-  approvedHours: number;
+  /** Hours ERP VERS has reviewed and sent to the client (awaiting their approval or approved). */
+  reviewedHours: number;
+  /** Freelancer hours not yet reviewed by ERP VERS. Zero for clients. */
   pendingHours: number;
   assignees: { user_id: string; full_name: string }[];
 };
@@ -41,8 +43,10 @@ export type MonthUsage = { month: string; hours: number };
 export type DashboardData = {
   client: Client;
   purchases: Purchase[];
-  /** Approved entries only: what the client sees and what counts against the balance. */
+  /** Entries sent to the client (awaiting their approval, or approved). These count against the balance. */
   entries: TimeEntry[];
+  /** The subset still waiting for the client to approve. */
+  awaiting: TimeEntry[];
   members: Member[];
   tasks: Task[];
   summary: {
@@ -50,6 +54,7 @@ export type DashboardData = {
     used: number;
     remaining: number;
     usedPct: number;
+    awaitingHours: number;
     isLow: boolean;
     isOverdrawn: boolean;
     lastEntryDate: string | null;
@@ -178,7 +183,7 @@ export async function getTasks(clientId?: string): Promise<Task[]> {
   if (usageRes.error) throw usageRes.error;
 
   const usage = new Map(
-    ((usageRes.data ?? []) as { task_id: string; total_estimate: number; approved_hours: number; pending_hours: number }[]).map((u) => [u.task_id, u]),
+    ((usageRes.data ?? []) as { task_id: string; total_estimate: number; reviewed_hours: number; pending_hours: number }[]).map((u) => [u.task_id, u]),
   );
 
   type Row = {
@@ -201,7 +206,7 @@ export async function getTasks(clientId?: string): Promise<Task[]> {
         .map((c) => ({ ...c, hours: Number(c.hours) }))
         .sort((a, b) => a.requested_on.localeCompare(b.requested_on)),
       totalEstimate: Number(u?.total_estimate ?? t.estimate_hours),
-      approvedHours: Number(u?.approved_hours ?? 0),
+      reviewedHours: Number(u?.reviewed_hours ?? 0),
       pendingHours: Number(u?.pending_hours ?? 0),
       assignees: (t.task_assignments ?? []).map((a) => ({ user_id: a.user_id, full_name: a.freelancers?.full_name ?? "Freelancer" })),
     };
@@ -221,7 +226,7 @@ export async function getDashboardData(clientId: string): Promise<DashboardData 
       .from("time_entries")
       .select(ENTRY_COLUMNS)
       .eq("client_id", clientId)
-      .eq("status", "approved")
+      .in("status", ["awaiting_client", "approved"])
       .order("work_date", { ascending: false })
       .order("created_at", { ascending: false }),
     supabase.from("client_members").select("user_id, email").eq("client_id", clientId).order("email"),
@@ -239,11 +244,13 @@ export async function getDashboardData(clientId: string): Promise<DashboardData 
   const purchased = round(purchases.reduce((sum, p) => sum + p.hours, 0));
   const used = round(entries.reduce((sum, e) => sum + e.hours, 0));
   const remaining = round(purchased - used);
+  const awaiting = entries.filter((e) => e.status === "awaiting_client");
 
   return {
     client,
     purchases,
     entries,
+    awaiting,
     members,
     tasks,
     summary: {
@@ -251,6 +258,7 @@ export async function getDashboardData(clientId: string): Promise<DashboardData 
       used,
       remaining,
       usedPct: purchased > 0 ? Math.min(100, Math.round((used / purchased) * 100)) : 0,
+      awaitingHours: round(awaiting.reduce((sum, e) => sum + e.hours, 0)),
       isLow: purchased > 0 && remaining > 0 && remaining <= client.low_balance_hours,
       isOverdrawn: remaining < 0,
       lastEntryDate: entries[0]?.work_date ?? null,
@@ -314,6 +322,7 @@ export type ClientOverview = Client & {
   used: number;
   remaining: number;
   pendingHours: number;
+  awaitingClientHours: number;
   lastEntryDate: string | null;
 };
 
@@ -331,11 +340,19 @@ export async function getAdminOverview(): Promise<ClientOverview[]> {
   return clients.map((c) => {
     const purchased = (purchasesRes.data ?? []).filter((p) => p.client_id === c.id).reduce((s, p) => s + Number(p.hours), 0);
     const mine = (entriesRes.data ?? []).filter((e) => e.client_id === c.id);
-    const approved = mine.filter((e) => e.status === "approved");
-    const used = approved.reduce((s, e) => s + Number(e.hours), 0);
-    const pendingHours = mine.filter((e) => e.status === "pending").reduce((s, e) => s + Number(e.hours), 0);
-    const lastEntryDate = approved.map((e) => e.work_date).sort().at(-1) ?? null;
-    return { ...c, purchased: round(purchased), used: round(used), remaining: round(purchased - used), pendingHours: round(pendingHours), lastEntryDate };
+    const sent = mine.filter((e) => e.status === "approved" || e.status === "awaiting_client");
+    const used = sent.reduce((s, e) => s + Number(e.hours), 0);
+    const sum = (status: string) => mine.filter((e) => e.status === status).reduce((s, e) => s + Number(e.hours), 0);
+    const lastEntryDate = sent.map((e) => e.work_date).sort().at(-1) ?? null;
+    return {
+      ...c,
+      purchased: round(purchased),
+      used: round(used),
+      remaining: round(purchased - used),
+      pendingHours: round(sum("pending")),
+      awaitingClientHours: round(sum("awaiting_client")),
+      lastEntryDate,
+    };
   });
 }
 
@@ -407,4 +424,24 @@ export async function getClientAccess(clientId: string) {
   if (domains.error) throw domains.error;
   if (invites.error) throw invites.error;
   return { domains: (domains.data ?? []).map((d) => d.domain), invites: (invites.data ?? []).map((i) => i.email) };
+}
+
+/** Email status of hours waiting for a client's approval (admin view). */
+export async function getClientEmailState(clientId: string) {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("time_entries")
+    .select("hours, client_notified_at")
+    .eq("client_id", clientId)
+    .eq("status", "awaiting_client");
+  if (error) throw error;
+  const rows = data ?? [];
+  const unsent = rows.filter((r) => !r.client_notified_at);
+  const lastSent = rows.map((r) => r.client_notified_at).filter(Boolean).sort().at(-1) ?? null;
+  return {
+    awaitingCount: rows.length,
+    unsentCount: unsent.length,
+    unsentHours: round(unsent.reduce((s, r) => s + Number(r.hours), 0)),
+    lastSentAt: lastSent as string | null,
+  };
 }

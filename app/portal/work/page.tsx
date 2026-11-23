@@ -21,8 +21,8 @@ export default async function FreelancerWorkPage() {
       <p className="text-sm font-bold uppercase tracking-[0.16em] text-blue-600">Freelancer</p>
       <h1 className="mt-2 text-3xl font-bold tracking-tight text-slate-950">{profile.full_name}&apos;s tasks</h1>
       <p className="mt-2 max-w-2xl text-slate-600">
-        Log your hours against each task. Hours are reviewed by ERP VERS before the client sees them. If a task needs
-        more hours than estimated, ask ERP VERS to add a change request.
+        Log your hours against each task. ERP VERS reviews them and then sends them to the client to approve. If a
+        task needs more hours than estimated, ask ERP VERS to add a change request.
       </p>
 
       {open.length === 0 ? (
@@ -32,7 +32,7 @@ export default async function FreelancerWorkPage() {
       ) : (
         <div className="mt-8 grid gap-5 lg:grid-cols-2 [&>*]:min-w-0">
           {open.map((task) => {
-            const remaining = Math.max(task.totalEstimate - task.approvedHours - task.pendingHours, 0);
+            const remaining = Math.max(task.totalEstimate - task.reviewedHours - task.pendingHours, 0);
             return (
               <TaskCard key={task.id} task={task} eyebrow={task.client_name} showPending>
                 {remaining <= 0 ? (
@@ -124,7 +124,7 @@ export default async function FreelancerWorkPage() {
                       )}
                     </td>
                     <td className="px-3 py-3.5 text-right font-semibold tabular-nums text-slate-900">{formatHours(e.hours)}</td>
-                    <td className="px-3 py-3.5"><StatusBadge status={e.status} /></td>
+                    <td className="px-3 py-3.5"><StatusBadge status={e.status} audience="freelancer" /></td>
                     <td className="px-5 py-3.5 text-right sm:px-7">
                       {e.status === "pending" && (
                         <ActionForm action={deleteMyEntryAction} variant="subtle" submitLabel="Delete" pendingLabel="Deleting…" confirmMessage="Delete this entry?">

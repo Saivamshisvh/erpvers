@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { discountForHours } from "@/lib/prepaid";
 import { getPendingRegistrations, requireAdmin, requireFreelancer, requireUser } from "@/lib/portal/data";
+import { describeNotify, notifyClient } from "@/lib/portal/notify";
 import { isPortalConfigured } from "@/lib/supabase/config";
 import { createClient } from "@/lib/supabase/server";
 
@@ -371,11 +372,12 @@ export async function addEntryAction(_prev: ActionState, form: FormData): Promis
   const supabase = await createClient();
   const { error } = await supabase
     .from("time_entries")
-    .insert({ client_id: clientId, task_id: taskId, work_date: workDate, consultant, description, hours, status: "approved" });
+    .insert({ client_id: clientId, task_id: taskId, work_date: workDate, consultant, description, hours, status: "awaiting_client" });
   if (error) return fail(`Could not log the hours: ${error.message}`);
 
+  const email = describeNotify(await notifyClient(clientId));
   refresh(clientId);
-  return { ok: true, message: `Logged ${hours} hours.` };
+  return { ok: true, message: `Logged ${hours} hours and sent them to the client to approve. ${email}`.trim() };
 }
 
 export async function deleteEntryAction(_prev: ActionState, form: FormData): Promise<ActionState> {
@@ -588,7 +590,7 @@ export async function reviewEntryAction(_prev: ActionState, form: FormData): Pro
   if (decision === "reject" && !note) return fail("Add a short reason so the freelancer knows what to fix.");
 
   const update: Record<string, unknown> = {
-    status: decision === "approve" ? "approved" : "rejected",
+    status: decision === "approve" ? "awaiting_client" : "rejected",
     review_note: note || null,
     reviewed_by: admin.id,
     reviewed_at: new Date().toISOString(),
@@ -604,8 +606,13 @@ export async function reviewEntryAction(_prev: ActionState, form: FormData): Pro
   if (error) return fail(`Could not save: ${error.message}`);
   if (!data) return fail("This entry was already reviewed. Refresh the page.");
 
+  if (decision === "reject") {
+    refresh(data.client_id);
+    return { ok: true, message: "Rejected. The freelancer can see your note." };
+  }
+  const email = describeNotify(await notifyClient(data.client_id));
   refresh(data.client_id);
-  return { ok: true, message: decision === "approve" ? "Approved. The client can see it now." : "Rejected. The freelancer can see your note." };
+  return { ok: true, message: `Sent to the client to approve. ${email}`.trim() };
 }
 
 // ---------------------------------------------------------------------------
@@ -709,7 +716,7 @@ export async function logHoursAction(_prev: ActionState, form: FormData): Promis
 
   revalidatePath("/portal/work");
   revalidatePath("/portal", "layout");
-  return { ok: true, message: `Logged ${hours} hours. ERP VERS will review them before the client sees them.` };
+  return { ok: true, message: `Logged ${hours} hours. ERP VERS will review them before they go to the client.` };
 }
 
 export async function deleteMyEntryAction(_prev: ActionState, form: FormData): Promise<ActionState> {
@@ -722,4 +729,87 @@ export async function deleteMyEntryAction(_prev: ActionState, form: FormData): P
   if (!data?.length) return fail("Only entries still waiting for review can be deleted.");
   revalidatePath("/portal/work");
   return { ok: true, message: "Entry deleted." };
+}
+
+// ---------------------------------------------------------------------------
+// Admin: sending hours to the client
+// ---------------------------------------------------------------------------
+
+/** Approve every freelancer entry waiting for review for one client, and email the client once. */
+export async function approveAllForClientAction(_prev: ActionState, form: FormData): Promise<ActionState> {
+  const admin = await requireAdmin();
+  const clientId = clientIdFrom(form);
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("time_entries")
+    .update({ status: "awaiting_client", reviewed_by: admin.id, reviewed_at: new Date().toISOString(), review_note: null })
+    .eq("client_id", clientId)
+    .eq("status", "pending")
+    .select("id");
+  if (error) return fail(`Could not approve: ${error.message}`);
+  if (!data?.length) return fail("Nothing is waiting for review for this client.");
+
+  const email = describeNotify(await notifyClient(clientId));
+  refresh(clientId);
+  return { ok: true, message: `Sent ${data.length} ${data.length === 1 ? "entry" : "entries"} to the client to approve. ${email}`.trim() };
+}
+
+/** Email the client now: new hours if any haven't been emailed yet, otherwise a reminder of everything waiting. */
+export async function emailClientAction(_prev: ActionState, form: FormData): Promise<ActionState> {
+  await requireAdmin();
+  const clientId = clientIdFrom(form);
+  let result = await notifyClient(clientId);
+  let reminder = false;
+  if (!result.sent && result.reason === "nothing") {
+    result = await notifyClient(clientId, { reminder: true });
+    reminder = true;
+  }
+  refresh(clientId);
+  if (result.sent) return { ok: true, message: reminder ? `Reminder sent. ${describeNotify(result)}` : describeNotify(result) };
+  if (result.reason === "nothing") return fail("Nothing is waiting for the client's approval.");
+  return fail(describeNotify(result));
+}
+
+/** For when a client approves by email or phone instead of in the portal. */
+export async function markClientApprovedAction(_prev: ActionState, form: FormData): Promise<ActionState> {
+  const admin = await requireAdmin();
+  const clientId = clientIdFrom(form);
+  const id = text(form, "id");
+  if (id && !UUID.test(id)) return fail("Invalid entry.");
+
+  const supabase = await createClient();
+  let query = supabase
+    .from("time_entries")
+    .update({ status: "approved", client_approved_by: admin.id, client_approved_at: new Date().toISOString() })
+    .eq("client_id", clientId)
+    .eq("status", "awaiting_client");
+  if (id) query = query.eq("id", id);
+  const { data, error } = await query.select("id");
+  if (error) return fail(`Could not save: ${error.message}`);
+  if (!data?.length) return fail("Nothing was waiting for approval.");
+
+  refresh(clientId);
+  return { ok: true, message: `Marked ${data.length} ${data.length === 1 ? "entry" : "entries"} as approved by the client.` };
+}
+
+// ---------------------------------------------------------------------------
+// Clients: approving hours (approve only; to dispute, they contact ERP VERS)
+// ---------------------------------------------------------------------------
+
+export async function clientApproveAction(_prev: ActionState, form: FormData): Promise<ActionState> {
+  await requireUser();
+  const clientId = clientIdFrom(form);
+  const ids = form.getAll("entryId").map(String).filter((v) => UUID.test(v));
+
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("client_approve_entries", {
+    p_client_id: clientId,
+    p_entry_ids: ids.length ? ids : null,
+  });
+  if (error) return fail("Something went wrong saving your approval. Please try again, or contact us.");
+  const n = Number(data ?? 0);
+  if (n === 0) return fail("These hours were already approved. Refresh the page to see the latest.");
+
+  revalidatePath("/portal", "layout");
+  return { ok: true, message: `Thank you. ${n} ${n === 1 ? "entry" : "entries"} approved.` };
 }

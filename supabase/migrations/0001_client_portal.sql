@@ -6,8 +6,9 @@
 --
 -- Who sees what (enforced by Postgres row level security, so a bug in
 -- the website cannot leak data):
---   * Clients read only their own company's purchases, tasks and
---     APPROVED hours. They can never write anything.
+--   * Clients read only their own company's purchases, tasks and the
+--     hours ERP VERS has sent them. The only thing they can change is
+--     approving those hours; there is no reject (they contact you).
 --   * Freelancers read only the tasks you assign them (and the client's
 --     name), log hours against those tasks, and see only their own
 --     entries. They never see purchases or balances.
@@ -22,6 +23,9 @@
 --   * Freelancers cannot log more hours on a task than its estimate plus
 --     approved change requests. Only admins set estimates.
 --   * Freelancer hours wait for admin review before clients see them.
+--   * Hours flow: pending (freelancer logged) -> awaiting_client (sent to
+--     the client by email) -> approved (client approved). Hours count
+--     against the prepaid balance from awaiting_client onwards.
 -- =====================================================================
 
 create schema if not exists private;
@@ -131,7 +135,11 @@ create table public.task_assignments (
 );
 create index task_assignments_user_idx on public.task_assignments (user_id);
 
--- Hours worked. Freelancer entries start as 'pending' until an admin reviews them.
+-- Hours worked.
+--   pending         logged by a freelancer, waiting for admin review
+--   awaiting_client reviewed by ERP VERS and sent to the client to approve
+--   approved        approved by the client
+--   rejected        rejected by ERP VERS (with a note for the freelancer)
 create table public.time_entries (
   id                uuid primary key default gen_random_uuid(),
   client_id         uuid not null references public.clients(id) on delete cascade,
@@ -141,16 +149,20 @@ create table public.time_entries (
   consultant        text not null check (length(trim(consultant)) between 1 and 120),
   description       text not null check (length(trim(description)) between 1 and 1000),
   hours             numeric(6,2) not null check (hours > 0 and hours <= 24),
-  status            text not null default 'approved' check (status in ('pending', 'approved', 'rejected')),
+  status            text not null default 'awaiting_client'
+                      check (status in ('pending', 'awaiting_client', 'approved', 'rejected')),
   review_note       text check (review_note is null or length(review_note) <= 500),
   reviewed_by       uuid references auth.users(id) on delete set null,
   reviewed_at       timestamptz,
+  client_notified_at timestamptz,
+  client_approved_by uuid references auth.users(id) on delete set null,
+  client_approved_at timestamptz,
   created_by        uuid default auth.uid() references auth.users(id) on delete set null,
   created_at        timestamptz not null default now()
 );
 create index time_entries_client_idx on public.time_entries (client_id, work_date desc);
 create index time_entries_task_idx on public.time_entries (task_id);
-create index time_entries_status_idx on public.time_entries (status) where status = 'pending';
+create index time_entries_status_idx on public.time_entries (client_id, status) where status in ('pending', 'awaiting_client');
 create index time_entries_created_by_idx on public.time_entries (created_by);
 
 -- ---------------------------------------------------------------------
@@ -363,27 +375,51 @@ end;
 $$;
 
 -- Estimate, change requests and hours per task, for tasks the caller may see.
--- Clients get approved hours only; admins and assigned freelancers also see pending.
+-- reviewed_hours = hours ERP VERS has sent to the client (awaiting or approved).
+-- pending_hours (not yet reviewed) is shown only to admins and assigned freelancers.
 create or replace function public.task_usage(p_client_id uuid default null)
 returns table (task_id uuid, estimate_hours numeric, change_request_hours numeric, total_estimate numeric,
-               approved_hours numeric, pending_hours numeric)
+               reviewed_hours numeric, pending_hours numeric)
 language sql stable security definer set search_path = ''
 as $$
   select t.id,
          t.estimate_hours,
          coalesce(cr.hours, 0),
          t.estimate_hours + coalesce(cr.hours, 0),
-         coalesce(te.approved, 0),
+         coalesce(te.reviewed, 0),
          case when private.is_admin() or private.is_assigned(t.id) then coalesce(te.pending, 0) else 0 end
   from public.tasks t
   left join lateral (select sum(c.hours) as hours from public.change_requests c where c.task_id = t.id) cr on true
   left join lateral (
-    select sum(e.hours) filter (where e.status = 'approved') as approved,
+    select sum(e.hours) filter (where e.status in ('awaiting_client', 'approved')) as reviewed,
            sum(e.hours) filter (where e.status = 'pending')  as pending
     from public.time_entries e where e.task_id = t.id
   ) te on true
   where (p_client_id is null or t.client_id = p_client_id)
     and (private.is_admin() or private.is_member(t.client_id) or private.is_assigned(t.id));
+$$;
+
+-- Client: approve hours ERP VERS has sent. Approve only, there is no reject.
+-- Pass entry ids, or null to approve everything waiting for that client.
+create or replace function public.client_approve_entries(p_client_id uuid, p_entry_ids uuid[] default null)
+returns integer language plpgsql volatile security definer set search_path = ''
+as $$
+declare
+  n integer;
+begin
+  if not private.is_member(p_client_id) then
+    return 0;
+  end if;
+  update public.time_entries e
+     set status = 'approved',
+         client_approved_by = (select auth.uid()),
+         client_approved_at = now()
+   where e.client_id = p_client_id
+     and e.status = 'awaiting_client'
+     and (p_entry_ids is null or e.id = any (p_entry_ids));
+  get diagnostics n = row_count;
+  return n;
+end;
 $$;
 
 -- Keep-awake check used by the daily scheduled job. Returns nothing private.
@@ -395,8 +431,10 @@ revoke all on function public.pending_registrations() from public, anon;
 revoke all on function public.find_registered_user(text) from public, anon;
 revoke all on function public.decline_registration(uuid) from public, anon;
 revoke all on function public.task_usage(uuid) from public, anon;
+revoke all on function public.client_approve_entries(uuid, uuid[]) from public, anon;
 grant execute on function public.link_existing_users(), public.pending_registrations(),
-  public.find_registered_user(text), public.decline_registration(uuid), public.task_usage(uuid)
+  public.find_registered_user(text), public.decline_registration(uuid), public.task_usage(uuid),
+  public.client_approve_entries(uuid, uuid[])
   to authenticated;
 grant execute on function public.ping() to anon, authenticated;
 
@@ -414,6 +452,22 @@ declare
   v_is_admin  boolean := private.is_admin();
   v_name      text;
 begin
+  if tg_op = 'UPDATE' and not v_is_admin then
+    -- The only non-admin update is a client approving hours through
+    -- client_approve_entries(): status awaiting_client -> approved, nothing else.
+    if not (old.status = 'awaiting_client' and new.status = 'approved'
+            and private.is_member(old.client_id)
+            and new.hours = old.hours and new.client_id = old.client_id
+            and new.task_id is not distinct from old.task_id
+            and new.change_request_id is not distinct from old.change_request_id
+            and new.work_date = old.work_date and new.description = old.description
+            and new.consultant = old.consultant
+            and new.client_approved_by = (select auth.uid())) then
+      raise exception 'NOT_ALLOWED';
+    end if;
+    return new;
+  end if;
+
   if new.task_id is not null then
     -- Lock the task so two entries logged at once can't both slip under the estimate.
     select * into v_task from public.tasks where id = new.task_id for update;
@@ -445,12 +499,15 @@ begin
   new.review_note := null;
   new.reviewed_by := null;
   new.reviewed_at := null;
+  new.client_notified_at := null;
+  new.client_approved_by := null;
+  new.client_approved_at := null;
 
   select v_task.estimate_hours + coalesce(sum(c.hours), 0) into v_total
     from public.change_requests c where c.task_id = new.task_id;
   select coalesce(sum(e.hours), 0) into v_used
     from public.time_entries e
-    where e.task_id = new.task_id and e.status in ('pending', 'approved') and e.id <> new.id;
+    where e.task_id = new.task_id and e.status in ('pending', 'awaiting_client', 'approved') and e.id <> new.id;
 
   if v_used + new.hours > v_total then
     raise exception 'ESTIMATE_EXCEEDED:%', greatest(v_total - v_used, 0);
@@ -568,12 +625,13 @@ create policy "task_assignments: admins delete" on public.task_assignments for d
 
 -- time_entries
 --   admins: everything
---   clients: approved entries for their company
+--   clients: entries sent to them (awaiting their approval, or approved); they
+--            approve through client_approve_entries(), never by direct update
 --   freelancers: their own entries; may log on assigned tasks and delete their own pending entries
 create policy "time_entries: read" on public.time_entries for select to authenticated
   using (
     (select private.is_admin())
-    or (status = 'approved' and private.is_member(client_id))
+    or (status in ('awaiting_client', 'approved') and private.is_member(client_id))
     or (created_by = (select auth.uid()) and (select private.is_freelancer()))
   );
 create policy "time_entries: admins insert" on public.time_entries for insert to authenticated

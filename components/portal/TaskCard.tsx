@@ -13,7 +13,7 @@ type TaskCardProps = {
 
 export default function TaskCard({ task, showPending = false, showAssignees = false, eyebrow, children }: TaskCardProps) {
   const pending = showPending ? task.pendingHours : 0;
-  const used = task.approvedHours + pending;
+  const used = task.reviewedHours + pending;
   const remaining = Math.max(task.totalEstimate - used, 0);
   const over = used > task.totalEstimate;
   const pct = (h: number) => (task.totalEstimate > 0 ? Math.min(100, (h / task.totalEstimate) * 100) : 0);
@@ -64,12 +64,12 @@ export default function TaskCard({ task, showPending = false, showAssignees = fa
         role="img"
         aria-label={`${formatHours(used)} of ${formatHours(task.totalEstimate)} estimated hours used`}
       >
-        <div className="h-full rounded-full bg-blue-600" style={{ width: `${pct(task.approvedHours)}%` }} />
+        <div className="h-full rounded-full bg-blue-600" style={{ width: `${pct(task.reviewedHours)}%` }} />
         {pending > 0 && <div className="h-full rounded-full bg-amber-400" style={{ width: `${pct(pending)}%` }} />}
       </div>
       {pending > 0 && (
         <p className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
-          <span className="inline-flex items-center gap-1.5"><span className="size-2 rounded-full bg-blue-600" /> Approved</span>
+          <span className="inline-flex items-center gap-1.5"><span className="size-2 rounded-full bg-blue-600" /> Reviewed</span>
           <span className="inline-flex items-center gap-1.5"><span className="size-2 rounded-full bg-amber-400" /> Waiting review</span>
         </p>
       )}

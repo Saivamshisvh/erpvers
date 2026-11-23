@@ -22,7 +22,7 @@ import {
   updateClientAction,
   updateTaskAction,
 } from "@/lib/portal/actions";
-import { getClientAccess, getDashboardData, getFreelancers, getReviewQueue, requireAdmin, type Task } from "@/lib/portal/data";
+import { getClientAccess, getClientEmailState, getDashboardData, getFreelancers, getReviewQueue, requireAdmin, type Task } from "@/lib/portal/data";
 import { formatHours, todayIso } from "@/lib/portal/format";
 import { PREPAID_TIERS } from "@/lib/prepaid";
 
@@ -131,7 +131,13 @@ export default async function AdminClientPage({ params }: { params: Promise<{ id
   await requireAdmin();
   const { id } = await params;
   if (!UUID.test(id)) notFound();
-  const [data, access, { freelancers }, queue] = await Promise.all([getDashboardData(id), getClientAccess(id), getFreelancers(), getReviewQueue()]);
+  const [data, access, { freelancers }, queue, emailState] = await Promise.all([
+    getDashboardData(id),
+    getClientAccess(id),
+    getFreelancers(),
+    getReviewQueue(),
+    getClientEmailState(id),
+  ]);
   if (!data) notFound();
 
   const { client, members, tasks } = data;
@@ -181,7 +187,7 @@ export default async function AdminClientPage({ params }: { params: Promise<{ id
       </section>
 
       <div className="mt-10 grid gap-6 lg:grid-cols-2 [&>*]:min-w-0">
-        <Panel title="Log hours yourself" description="Hours you log are approved straight away.">
+        <Panel title="Log hours yourself" description="Hours you log go straight to the client to approve, and they get an email.">
           <ActionForm action={addEntryAction} submitLabel="Log hours" pendingLabel="Logging…">
             {hidden}
             <div className="grid gap-4 sm:grid-cols-[1fr_1fr_7rem]">
@@ -291,6 +297,8 @@ export default async function AdminClientPage({ params }: { params: Promise<{ id
       <h2 className="mb-5 mt-14 text-xl font-bold tracking-tight text-slate-950">What {client.name} sees</h2>
       <Dashboard
         data={data}
+        mode="admin"
+        emailState={emailState}
         entryAction={(entry) => (
           <ActionForm action={deleteEntryAction} variant="subtle" submitLabel="Delete" pendingLabel="Deleting…" confirmMessage="Delete this time entry?">
             {hidden}
