@@ -338,7 +338,8 @@ export async function addPurchaseAction(_prev: ActionState, form: FormData): Pro
   const reference = text(form, "reference");
 
   if (!Number.isFinite(hours) || hours <= 0) return fail("Hours must be more than 0.");
-  const discount = discountRaw === "" ? discountForHours(hours) : Number(discountRaw);
+  // No discount unless one is entered, or the prepaid tier discount is ticked.
+  const discount = discountRaw !== "" ? Number(discountRaw) : text(form, "applyTier") === "yes" ? discountForHours(hours) : 0;
   if (!Number.isFinite(discount) || discount < 0 || discount > 100) return fail("Discount must be between 0 and 100.");
   if (!DATE.test(purchasedOn)) return fail("Pick the purchase date.");
   if (reference.length > 120) return fail("Reference is too long (120 characters max).");

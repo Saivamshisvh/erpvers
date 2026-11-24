@@ -255,12 +255,12 @@ export default async function AdminClientPage({ params }: { params: Promise<{ id
           </ActionForm>
         </Panel>
 
-        <Panel title="Record a prepaid purchase" description={`Leave discount empty to apply the tier automatically. ${tiers}.`}>
+        <Panel title="Record a prepaid purchase" description="No discount is applied unless you enter one or tick the prepaid tier discount.">
           <ActionForm action={addPurchaseAction} submitLabel="Record purchase" pendingLabel="Recording…">
             {hidden}
             <div className="grid gap-4 sm:grid-cols-2">
               <Field label="Hours" name="hours" type="number" required min="1" step="0.5" placeholder="100" />
-              <Field label="Discount %" name="discountPct" type="number" min="0" max="100" step="0.5" placeholder="Auto" />
+              <Field label="Discount %" name="discountPct" type="number" min="0" max="100" step="0.5" placeholder="0" hint="Leave empty for no discount." />
               <Field
                 label={`Rate per hour (${money.rates.currency})`}
                 name="hourlyRate"
@@ -272,6 +272,12 @@ export default async function AdminClientPage({ params }: { params: Promise<{ id
               />
               <Field label="Date" name="purchasedOn" type="date" required defaultValue={todayIso()} />
             </div>
+            <label className="flex items-start gap-2 text-sm text-slate-600">
+              <input type="checkbox" name="applyTier" value="yes" className="mt-1 accent-blue-600" />
+              <span>
+                Apply the prepaid tier discount <span className="text-slate-400">({tiers})</span>
+              </span>
+            </label>
             <Field label="Reference" name="reference" maxLength={120} placeholder="Invoice or PO number (optional)" />
           </ActionForm>
         </Panel>
