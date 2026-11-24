@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import ActionForm from "@/components/portal/ActionForm";
 import AdminNav from "@/components/portal/AdminNav";
 import { Field, Panel } from "@/components/portal/fields";
-import { inviteFreelancerAction, revokeFreelancerInviteAction, setFreelancerActiveAction } from "@/lib/portal/actions";
+import { inviteFreelancerAction, resendFreelancerInviteAction, revokeFreelancerInviteAction, setFreelancerActiveAction } from "@/lib/portal/actions";
 import { getFreelancers, getPendingRegistrations, getReviewQueue, requireAdmin } from "@/lib/portal/data";
 import { formatDate } from "@/lib/portal/format";
 
@@ -58,9 +58,14 @@ export default async function FreelancersPage() {
                     <span className="text-slate-700">
                       {i.full_name} · <span className="break-all text-slate-500">{i.email}</span> · invited {formatDate(i.created_at)}
                     </span>
-                    <ActionForm action={revokeFreelancerInviteAction} variant="subtle" submitLabel="Cancel invite" pendingLabel="Removing…">
-                      <input type="hidden" name="email" value={i.email} />
-                    </ActionForm>
+                    <div className="flex items-center gap-5">
+                      <ActionForm action={resendFreelancerInviteAction} variant="subtle" submitLabel="Resend email" pendingLabel="Sending…">
+                        <input type="hidden" name="email" value={i.email} />
+                      </ActionForm>
+                      <ActionForm action={revokeFreelancerInviteAction} variant="subtle" submitLabel="Cancel invite" pendingLabel="Removing…">
+                        <input type="hidden" name="email" value={i.email} />
+                      </ActionForm>
+                    </div>
                   </li>
                 ))}
               </ul>
@@ -68,7 +73,7 @@ export default async function FreelancersPage() {
           )}
         </section>
 
-        <Panel title="Invite a freelancer" description="They register at erpvers.com/portal/register with this email and get access straight away. Then assign them tasks from a client page.">
+        <Panel title="Invite a freelancer" description="We email them a link to register with this address. They get access as soon as they confirm their email. Then assign them tasks from a client page.">
           <ActionForm action={inviteFreelancerAction} submitLabel="Invite" pendingLabel="Inviting…">
             <Field label="Name" name="fullName" required maxLength={120} hint="Shown to clients in their work log." />
             <Field label="Email" name="email" type="email" required placeholder="name@example.com" />

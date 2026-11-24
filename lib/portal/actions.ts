@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { discountForHours } from "@/lib/prepaid";
 import { getPendingRegistrations, requireAdmin, requireFreelancer, requireUser } from "@/lib/portal/data";
-import { describeNotify, notifyClient } from "@/lib/portal/notify";
+import { describeNotify, notifyClient, sendInviteEmail } from "@/lib/portal/notify";
 import { isPortalConfigured } from "@/lib/supabase/config";
 import { createClient } from "@/lib/supabase/server";
 
@@ -264,6 +264,24 @@ export async function updateClientAction(_prev: ActionState, form: FormData): Pr
 // Admin: who can see a client's dashboard
 // ---------------------------------------------------------------------------
 
+async function clientName(clientId: string) {
+  const supabase = await createClient();
+  const { data } = await supabase.from("clients").select("name").eq("id", clientId).maybeSingle();
+  return data?.name as string | undefined;
+}
+
+export async function resendClientInviteAction(_prev: ActionState, form: FormData): Promise<ActionState> {
+  await requireAdmin();
+  const clientId = clientIdFrom(form);
+  const email = text(form, "email").toLowerCase();
+  if (!EMAIL.test(email)) return fail("Enter a valid email address.");
+  const supabase = await createClient();
+  const { data } = await supabase.from("client_invites").select("email").eq("client_id", clientId).eq("email", email).maybeSingle();
+  if (!data) return fail("This invite no longer exists. Refresh the page.");
+  return { ok: true, message: await sendInviteEmail({ role: "client", email, clientName: await clientName(clientId), alreadyRegistered: false }) };
+}
+
+
 export async function addMemberAction(_prev: ActionState, form: FormData): Promise<ActionState> {
   await requireAdmin();
   const clientId = clientIdFrom(form);
@@ -279,7 +297,8 @@ export async function addMemberAction(_prev: ActionState, form: FormData): Promi
     if (error?.code === "23505") return fail(`${email} is already invited.`);
     if (error) return fail(`Could not invite ${email}: ${error.message}`);
     refresh(clientId);
-    return { ok: true, message: `Invited. ${email} gets access as soon as they register and confirm their email.` };
+    const sent = await sendInviteEmail({ role: "client", email, clientName: await clientName(clientId), alreadyRegistered: false });
+    return { ok: true, message: `Invited. ${email} gets access as soon as they register and confirm their email. ${sent}` };
   }
 
   const { error } = await supabase.from("client_members").insert({ client_id: clientId, user_id: userId, email });
@@ -287,7 +306,8 @@ export async function addMemberAction(_prev: ActionState, form: FormData): Promi
   if (error) return fail(`Could not add ${email}: ${error.message}`);
 
   refresh(clientId);
-  return { ok: true, message: `${email} can now see this dashboard.` };
+  const sent = await sendInviteEmail({ role: "client", email, clientName: await clientName(clientId), alreadyRegistered: true });
+  return { ok: true, message: `${email} can now see this dashboard. ${sent}` };
 }
 
 export async function removeMemberAction(_prev: ActionState, form: FormData): Promise<ActionState> {
@@ -634,9 +654,20 @@ export async function inviteFreelancerAction(_prev: ActionState, form: FormData)
   const linked = await supabase.rpc("link_existing_users");
   refresh();
   revalidatePath("/portal/admin/freelancers");
-  return Number(linked.data ?? 0) > 0
-    ? { ok: true, message: `${fullName} already had an account and is now a freelancer.` }
-    : { ok: true, message: `Invited. ${fullName} becomes a freelancer as soon as they register at erpvers.com/portal/register with ${email}.` };
+  const alreadyRegistered = Number(linked.data ?? 0) > 0;
+  const sent = await sendInviteEmail({ role: "freelancer", email, name: fullName, alreadyRegistered });
+  return alreadyRegistered
+    ? { ok: true, message: `${fullName} already had an account and is now a freelancer. ${sent}` }
+    : { ok: true, message: `Invited. ${fullName} becomes a freelancer as soon as they register with ${email}. ${sent}` };
+}
+
+export async function resendFreelancerInviteAction(_prev: ActionState, form: FormData): Promise<ActionState> {
+  await requireAdmin();
+  const email = text(form, "email").toLowerCase();
+  const supabase = await createClient();
+  const { data } = await supabase.from("freelancer_invites").select("email, full_name").eq("email", email).maybeSingle();
+  if (!data) return fail("This invite no longer exists. Refresh the page.");
+  return { ok: true, message: await sendInviteEmail({ role: "freelancer", email, name: data.full_name ?? undefined, alreadyRegistered: false }) };
 }
 
 export async function revokeFreelancerInviteAction(_prev: ActionState, form: FormData): Promise<ActionState> {

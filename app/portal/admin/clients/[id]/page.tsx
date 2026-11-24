@@ -18,6 +18,7 @@ import {
   deleteTaskAction,
   removeDomainAction,
   removeInviteAction,
+  resendClientInviteAction,
   removeMemberAction,
   updateClientAction,
   updateTaskAction,
@@ -266,17 +267,23 @@ export default async function AdminClientPage({ params }: { params: Promise<{ id
                     <span className="break-all text-sm text-slate-600">
                       {email} <span className="text-xs text-slate-400">· invited, not registered yet</span>
                     </span>
-                    <ActionForm action={removeInviteAction} variant="subtle" submitLabel="Cancel" pendingLabel="Removing…">
-                      {hidden}
-                      <input type="hidden" name="email" value={email} />
-                    </ActionForm>
+                    <div className="flex items-center gap-4">
+                      <ActionForm action={resendClientInviteAction} variant="subtle" submitLabel="Resend email" pendingLabel="Sending…">
+                        {hidden}
+                        <input type="hidden" name="email" value={email} />
+                      </ActionForm>
+                      <ActionForm action={removeInviteAction} variant="subtle" submitLabel="Cancel" pendingLabel="Removing…">
+                        {hidden}
+                        <input type="hidden" name="email" value={email} />
+                      </ActionForm>
+                    </div>
                   </li>
                 ))}
               </ul>
               <div className="mt-3">
                 <ActionForm action={addMemberAction} submitLabel="Give access" pendingLabel="Adding…">
                   {hidden}
-                  <Field label="Email" name="email" type="email" required placeholder="name@client.com" hint="If they haven't registered yet, they get access as soon as they do." />
+                  <Field label="Email" name="email" type="email" required placeholder="name@client.com" hint="We email them a link. If they haven't registered yet, they get access as soon as they do." />
                 </ActionForm>
               </div>
             </div>

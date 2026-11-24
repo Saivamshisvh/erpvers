@@ -1,6 +1,7 @@
 import "server-only";
 import { headers } from "next/headers";
 import { buildHoursApprovalEmail, type ApprovalEmailEntry } from "@/lib/email/hoursApproval";
+import { buildInviteEmail } from "@/lib/email/invite";
 import { isEmailConfigured, sendEmail } from "@/lib/email/mailer";
 import { createClient } from "@/lib/supabase/server";
 
@@ -8,7 +9,7 @@ export type NotifyResult =
   | { sent: true; count: number; recipients: number }
   | { sent: false; reason: "nothing" | "not_configured" | "no_recipients" | "failed"; error?: string };
 
-async function portalUrl() {
+export async function portalUrl() {
   if (process.env.SITE_URL) return `${process.env.SITE_URL.replace(/\/$/, "")}/portal`;
   const h = await headers();
   return `${h.get("x-forwarded-proto") ?? "https"}://${h.get("x-forwarded-host") ?? h.get("host")}/portal`;
@@ -99,5 +100,31 @@ export function describeNotify(result: NotifyResult) {
       return "Nobody at this client has portal access yet, so no email went out.";
     case "failed":
       return `The email couldn't be sent (${result.error}). Use "Email client" on the client page to try again.`;
+  }
+}
+
+/**
+ * Emails someone that they've been given portal access, with a link to register
+ * (or sign in, when they already have an account). Returns one sentence for the admin.
+ */
+export async function sendInviteEmail(input: {
+  role: "freelancer" | "client";
+  email: string;
+  name?: string;
+  clientName?: string;
+  alreadyRegistered: boolean;
+}): Promise<string> {
+  if (!isEmailConfigured()) return "Email isn't set up yet, so no email went out. Send them the link yourself.";
+  const email = buildInviteEmail({
+    ...input,
+    portalUrl: await portalUrl(),
+    supportEmail: process.env.MAIL_REPLY_TO ?? process.env.SMTP_USER ?? "support@erpvers.com",
+  });
+  try {
+    await sendEmail({ to: [input.email], ...email });
+    return `We emailed ${input.email} with the link.`;
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    return `The email to ${input.email} couldn't be sent (${reason}). Use "Resend email" or send them the link yourself.`;
   }
 }

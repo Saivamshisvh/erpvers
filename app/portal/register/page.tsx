@@ -12,8 +12,10 @@ export const metadata: Metadata = { title: "Create an account" };
 
 const steps = ["Create your account", "Confirm your email", "See your dashboard: straight away if your company or ERP VERS has given your email access, otherwise once we link you"];
 
-export default async function RegisterPage() {
+export default async function RegisterPage({ searchParams }: { searchParams: Promise<{ email?: string }> }) {
   if (await getCurrentUser()) redirect("/portal");
+  const { email: invited } = await searchParams;
+  const prefill = typeof invited === "string" && invited.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(invited) ? invited : undefined;
 
   return (
     <AuthCard
@@ -40,7 +42,7 @@ export default async function RegisterPage() {
       <AuthForm action={register} submitLabel="Create account" pendingLabel="Creating account…" successTitle="Almost there">
         <Field label="Full name" name="fullName" required maxLength={120} autoComplete="name" />
         <Field label="Company (optional)" name="company" maxLength={120} autoComplete="organization" />
-        <Field label="Work email" name="email" type="email" required autoComplete="email" placeholder="you@company.com" />
+        <Field label="Work email" name="email" type="email" required autoComplete="email" placeholder="you@company.com" defaultValue={prefill} />
         <Field label="Password" name="password" type="password" required minLength={8} maxLength={72} autoComplete="new-password" hint="At least 8 characters." />
         <Field label="Confirm password" name="confirmPassword" type="password" required minLength={8} maxLength={72} autoComplete="new-password" />
       </AuthForm>

@@ -648,3 +648,12 @@ create policy "time_entries: admins delete" on public.time_entries for delete to
   using ((select private.is_admin()));
 create policy "time_entries: freelancers delete own pending" on public.time_entries for delete to authenticated
   using (created_by = (select auth.uid()) and status = 'pending' and (select private.is_freelancer()));
+
+-- ---------------------------------------------------------------------------
+-- Table privileges. Newer Supabase projects don't grant these automatically, so
+-- without them every portal page fails with "permission denied" (42501).
+-- Row level security above still decides which rows each person can see.
+-- The anon role (not signed in) gets no table access.
+-- ---------------------------------------------------------------------------
+grant select, insert, update, delete on all tables in schema public to authenticated;
+grant usage, select on all sequences in schema public to authenticated;

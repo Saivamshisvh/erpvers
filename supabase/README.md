@@ -59,9 +59,11 @@ In **Authentication**:
    <p>This link works once and expires in one hour. If you didn't ask for this, you can ignore this email.</p>
    ```
 
-4. **Emails -> SMTP Settings**: connect your own mail sender (for example the
-   mailbox behind support@erpvers.com, or a service like Resend). Supabase's
-   built-in sender is only meant for testing and sends very few emails per hour.
+4. **Emails -> SMTP Settings**: connect the support@erpvers.com mailbox
+   (GoDaddy email): host `smtpout.secureserver.net`, port `465`, user
+   `support@erpvers.com`, the mailbox password, sender name `ERP VERS`.
+   Supabase's built-in sender is only meant for testing and sends very few
+   emails per hour. The email templates stay locked until SMTP is saved.
 
 ## 3. Add the keys to Vercel
 
@@ -74,22 +76,21 @@ Production (and Preview if you want):
 | `SUPABASE_URL`      | Project URL, `https://xxxx.supabase.co` |
 | `SUPABASE_ANON_KEY` | the anon / publishable key              |
 
-For the approval emails, also add your mailbox's SMTP settings:
+For the approval and invite emails, also add the mailbox's SMTP settings:
 
 | Name            | Value                                                        |
 | --------------- | ------------------------------------------------------------ |
-| `SMTP_HOST`     | e.g. `smtp.gmail.com` (Google Workspace) or `smtp.zoho.in` (Zoho) |
+| `SMTP_HOST`     | `smtpout.secureserver.net` (GoDaddy email)                   |
 | `SMTP_PORT`     | `465`                                                        |
 | `SMTP_USER`     | `support@erpvers.com`                                        |
-| `SMTP_PASS`     | an app password for that mailbox (not your normal password). Mark it **Sensitive**. |
+| `SMTP_PASS`     | the support@erpvers.com mailbox password. Add it as a **Secret**. |
 | `MAIL_FROM`     | `ERP VERS <support@erpvers.com>`                             |
 | `SITE_URL`      | `https://www.erpvers.com` (used for the link in emails)      |
 
-Google Workspace: turn on 2-step verification for the mailbox, then create an
-app password at myaccount.google.com/apppasswords. Zoho Mail: My Account ->
-Security -> App Passwords. Until these are set, everything still works; the
-client simply sees the hours when they sign in, and the admin page tells you
-no email went out.
+If you ever move the mailbox to another provider, use its SMTP host and, where
+required, an app password. Until SMTP is set, everything still works; clients
+simply see the hours when they sign in, invites send no email, and the admin
+page tells you no email went out.
 
 Then redeploy. The site never needs the service_role / secret key: every admin
 action runs as you, and the database checks you are an admin.
