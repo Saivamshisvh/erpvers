@@ -16,7 +16,8 @@ export type Purchase = {
   hourly_rate: number | null;
   currency: string | null;
 };
-export type EntryStatus = "pending" | "awaiting_client" | "approved" | "rejected";
+/** reviewed: ERP VERS approved it but hasn't sent it to the client yet (the client can't see it). */
+export type EntryStatus = "pending" | "reviewed" | "awaiting_client" | "approved" | "rejected";
 export type TimeEntry = {
   id: string;
   work_date: string;
@@ -30,7 +31,8 @@ export type TimeEntry = {
   change_request_title: string | null;
 };
 export type Member = { user_id: string; email: string };
-export type ChangeRequestStatus = "requested" | "pending_client" | "approved" | "rejected";
+/** reviewed: ERP VERS approved it but hasn't sent it to the client yet. */
+export type ChangeRequestStatus = "requested" | "reviewed" | "pending_client" | "approved" | "rejected";
 export type ChangeRequest = {
   id: string;
   task_id: string;
@@ -53,7 +55,7 @@ export type Task = {
   created_at: string;
   changeRequests: ChangeRequest[];
   totalEstimate: number;
-  /** Hours ERP VERS has reviewed and sent to the client (awaiting their approval or approved). */
+  /** Hours ERP VERS has approved. Clients only count what was sent to them; admins and freelancers also count approved hours not sent yet. */
   reviewedHours: number;
   /** Freelancer hours not yet reviewed by ERP VERS. Zero for clients. */
   pendingHours: number;
@@ -131,20 +133,27 @@ export const getFreelancerProfile = cache(async () => {
   return data?.active ? data : null;
 });
 
-export async function requireUser() {
+export const LOGIN_PATHS = {
+  client: "/portal/login",
+  employee: "/portal/login/employee",
+  admin: "/portal/login/admin",
+} as const;
+export type LoginAudience = keyof typeof LOGIN_PATHS;
+
+export async function requireUser(audience: LoginAudience = "client") {
   const user = await getCurrentUser();
-  if (!user) redirect("/portal/login");
+  if (!user) redirect(LOGIN_PATHS[audience]);
   return user;
 }
 
 export async function requireAdmin() {
-  const user = await requireUser();
+  const user = await requireUser("admin");
   if (!(await getIsAdmin())) redirect("/portal");
   return user;
 }
 
 export async function requireFreelancer() {
-  await requireUser();
+  await requireUser("employee");
   const profile = await getFreelancerProfile();
   if (!profile) redirect("/portal");
   return profile;
@@ -396,6 +405,8 @@ export type ClientOverview = Client & {
   used: number;
   remaining: number;
   pendingHours: number;
+  /** Approved by ERP VERS, not sent to the client yet. */
+  readyToSendHours: number;
   awaitingClientHours: number;
   lastEntryDate: string | null;
 };
@@ -424,6 +435,7 @@ export async function getAdminOverview(): Promise<ClientOverview[]> {
       used: round(used),
       remaining: round(purchased - used),
       pendingHours: round(sum("pending")),
+      readyToSendHours: round(sum("reviewed")),
       awaitingClientHours: round(sum("awaiting_client")),
       lastEntryDate,
     };
@@ -450,12 +462,17 @@ export const getPendingRegistrations = cache(async (): Promise<PendingRegistrati
 export type ReviewEntry = TimeEntry & { client_id: string; client_name: string; created_at: string };
 
 /** Freelancer hours waiting for review. */
-export const getReviewQueue = cache(async (): Promise<ReviewEntry[]> => {
+export const getReviewQueue = cache(async (): Promise<ReviewEntry[]> => entriesWithStatus("pending"));
+
+/** Hours ERP VERS approved but hasn't sent to the client yet. */
+export const getReadyToSend = cache(async (): Promise<ReviewEntry[]> => entriesWithStatus("reviewed"));
+
+async function entriesWithStatus(status: EntryStatus): Promise<ReviewEntry[]> {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("time_entries")
     .select(`${ENTRY_COLUMNS}, client_id, created_at, client:clients(name)`)
-    .eq("status", "pending")
+    .eq("status", status)
     .order("work_date")
     .order("created_at");
   if (error) throw error;
@@ -466,7 +483,7 @@ export const getReviewQueue = cache(async (): Promise<ReviewEntry[]> => {
     client_name: r.client?.name ?? "Client",
     created_at: r.created_at,
   }));
-});
+}
 
 export type Freelancer = { user_id: string; email: string; full_name: string; active: boolean; openTasks: number; default_rate_inr: number | null };
 
@@ -531,12 +548,17 @@ export async function getClientEmailState(clientId: string) {
 export type ChangeRequestReview = ChangeRequest & { client_id: string; client_name: string; task_title: string };
 
 /** Extra hours freelancers have asked for, waiting for ERP VERS. */
-export const getChangeRequestQueue = cache(async (): Promise<ChangeRequestReview[]> => {
+export const getChangeRequestQueue = cache(async (): Promise<ChangeRequestReview[]> => changeRequestsWithStatus("requested"));
+
+/** Extra hours ERP VERS approved but hasn't sent to the client yet. */
+export const getChangesReadyToSend = cache(async (): Promise<ChangeRequestReview[]> => changeRequestsWithStatus("reviewed"));
+
+async function changeRequestsWithStatus(status: ChangeRequestStatus): Promise<ChangeRequestReview[]> {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("change_requests")
     .select("id, task_id, title, description, hours, requested_on, status, requested_by_name, review_note, client_notified_at, task:tasks(title, client_id, client:clients(name))")
-    .eq("status", "requested")
+    .eq("status", status)
     .order("created_at");
   if (error) throw error;
   type Row = ChangeRequest & { task: { title: string; client_id: string; client: { name: string } | null } | null };
@@ -547,7 +569,7 @@ export const getChangeRequestQueue = cache(async (): Promise<ChangeRequestReview
     client_id: task?.client_id ?? "",
     client_name: task?.client?.name ?? "Client",
   }));
-});
+}
 
 /** A client's currency, hourly rate and exchange rate. Admin-only through RLS. */
 export async function getClientRates(clientId: string): Promise<ClientRates> {

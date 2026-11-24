@@ -22,7 +22,8 @@ const columns = [
       { href: "/solutions", label: "Solutions" },
       { href: "/industries", label: "Industries" },
       { href: "/contact", label: "Contact" },
-      { href: "/portal", label: "Client login" },
+      { href: "/portal/login", label: "Client login" },
+      { href: "/portal/login/employee", label: "Employee login" },
     ],
   },
 ];

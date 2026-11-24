@@ -89,7 +89,7 @@ export default async function AdminHome() {
             <p className="px-6 py-12 text-center text-sm text-slate-500">No clients yet. Add your first one.</p>
           ) : (
             <div className="relative overflow-x-auto">
-              <table className="w-full min-w-[820px] text-left text-sm">
+              <table className="w-full min-w-[900px] text-left text-sm">
                 <thead className="border-b border-slate-100 text-xs font-semibold uppercase tracking-wider text-slate-500">
                   <tr>
                     <th scope="col" className="px-6 py-3">Client</th>
@@ -97,6 +97,7 @@ export default async function AdminHome() {
                     <th scope="col" className="px-3 py-3 text-right">Used</th>
                     <th scope="col" className="px-3 py-3 text-right">Remaining</th>
                     <th scope="col" className="px-3 py-3 text-right">To review</th>
+                    <th scope="col" className="px-3 py-3 text-right">Not sent</th>
                     <th scope="col" className="px-3 py-3 text-right">With client</th>
                     <th scope="col" className="px-6 py-3">Last logged</th>
                   </tr>
@@ -121,6 +122,7 @@ export default async function AdminHome() {
                           {status && <span className={`ml-2 rounded-full px-2 py-0.5 text-xs font-semibold ${status.cls}`}>{status.label}</span>}
                         </td>
                         <td className="px-3 py-4 text-right tabular-nums text-amber-700">{c.pendingHours > 0 ? `${formatHours(c.pendingHours)} h` : ""}</td>
+                        <td className="px-3 py-4 text-right tabular-nums text-violet-700">{c.readyToSendHours > 0 ? `${formatHours(c.readyToSendHours)} h` : ""}</td>
                         <td className="px-3 py-4 text-right tabular-nums text-blue-700">{c.awaitingClientHours > 0 ? `${formatHours(c.awaitingClientHours)} h` : ""}</td>
                         <td className="px-6 py-4 text-slate-500">{c.lastEntryDate ? formatDate(c.lastEntryDate) : "-"}</td>
                       </tr>

@@ -4,7 +4,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { discountForHours } from "@/lib/prepaid";
-import { getPendingRegistrations, requireAdmin, requireFreelancer, requireUser } from "@/lib/portal/data";
+import { LOGIN_PATHS, getPendingRegistrations, requireAdmin, requireFreelancer, requireUser, type LoginAudience } from "@/lib/portal/data";
 import { describeNotify, notifyAdminOfChangeRequest, notifyClient, notifyClientChangeRequests, sendInviteEmail } from "@/lib/portal/notify";
 import { CURRENCIES } from "@/lib/portal/format";
 import { isPortalConfigured } from "@/lib/supabase/config";
@@ -104,17 +104,45 @@ export async function signIn(_prev: ActionState, form: FormData): Promise<Action
   const password = String(form.get("password") ?? "");
   if (!EMAIL.test(email) || !password) return fail("Enter your email and password.");
 
+  const requested = text(form, "audience");
+  const audience: LoginAudience = requested === "employee" || requested === "admin" ? requested : "client";
+
   const supabase = await createClient();
-  const { error } = await supabase.auth.signInWithPassword({ email, password });
+  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
 
   if (error?.code === "email_not_confirmed") {
     return fail("Please confirm your email address first. Check your inbox for the confirmation link.", { email });
   }
   if (error?.status === 429) return fail("Too many sign-in attempts. Please wait a few minutes and try again.");
   if (isServiceError(error)) return fail(SERVICE_DOWN);
-  if (error) return fail("Email or password is incorrect.");
+  if (error || !data.user) return fail("Email or password is incorrect.");
 
-  redirect("/portal");
+  // Each kind of account has its own sign-in page. Send people to the right one.
+  const actual = await audienceOf(supabase, data.user.id);
+  if (actual !== audience) {
+    await supabase.auth.signOut();
+    const where: Record<LoginAudience, string> = {
+      client: "This account isn't a client account. Please use the Employee login.",
+      employee: "This account isn't an employee account. Clients sign in on the Client login page.",
+      admin: "This account doesn't have admin access.",
+    };
+    // An admin trying the client or employee page is told only that it is the wrong page.
+    const message = actual === "admin" ? "Please use the admin sign-in page for this account." : where[audience];
+    return fail(message);
+  }
+
+  redirect(audience === "admin" ? "/portal/admin" : audience === "employee" ? "/portal/work" : "/portal");
+}
+
+/** Which sign-in page an account belongs on. Freelancers who were deactivated count as employees. */
+async function audienceOf(supabase: Awaited<ReturnType<typeof createClient>>, userId: string): Promise<LoginAudience> {
+  const [admin, freelancer] = await Promise.all([
+    supabase.from("admins").select("user_id").eq("user_id", userId).maybeSingle(),
+    supabase.from("freelancers").select("user_id").eq("user_id", userId).maybeSingle(),
+  ]);
+  if (admin.data) return "admin";
+  if (freelancer.data) return "employee";
+  return "client";
 }
 
 export async function resendConfirmation(_prev: ActionState, form: FormData): Promise<ActionState> {
@@ -165,11 +193,14 @@ export async function updatePassword(_prev: ActionState, form: FormData): Promis
 }
 
 export async function signOut() {
+  let audience: LoginAudience = "client";
   if (isPortalConfigured()) {
     const supabase = await createClient();
+    const { data } = await supabase.auth.getClaims();
+    if (data?.claims?.sub) audience = await audienceOf(supabase, data.claims.sub as string);
     await supabase.auth.signOut();
   }
-  redirect("/portal/login");
+  redirect(LOGIN_PATHS[audience]);
 }
 
 // ---------------------------------------------------------------------------
@@ -403,12 +434,17 @@ export async function addEntryAction(_prev: ActionState, form: FormData): Promis
   if (description.length < 1 || description.length > 1000) return fail("Describe the work (up to 1,000 characters).");
   if (!Number.isFinite(hours) || hours <= 0 || hours > 24) return fail("Hours must be more than 0 and at most 24.");
 
+  const sendNow = text(form, "sendNow") === "yes";
   const supabase = await createClient();
   const { error } = await supabase
     .from("time_entries")
-    .insert({ client_id: clientId, task_id: taskId, work_date: workDate, consultant, description, hours, status: "awaiting_client" });
+    .insert({ client_id: clientId, task_id: taskId, work_date: workDate, consultant, description, hours, status: sendNow ? "awaiting_client" : "reviewed" });
   if (error) return fail(`Could not log the hours: ${error.message}`);
 
+  if (!sendNow) {
+    refresh(clientId);
+    return { ok: true, message: `Logged ${hours} hours. They're under "Approved, not sent yet" until you send them to the client.` };
+  }
   const email = describeNotify(await notifyClient(clientId));
   refresh(clientId);
   return { ok: true, message: `Logged ${hours} hours and sent them to the client to approve. ${email}`.trim() };
@@ -614,20 +650,28 @@ export async function addChangeRequestAction(_prev: ActionState, form: FormData)
   if (!DATE.test(requestedOn)) return fail("Pick the date the change was requested.");
 
   const supabase = await createClient();
-  const sendNow = text(form, "approved") !== "yes";
-  const user = await requireUser();
+  // agreed: the client already said yes. send: email the client now. Otherwise it waits under "Approved, not sent yet".
+  const next = text(form, "next");
+  const agreed = next === "agreed";
+  const sendNow = next === "send";
+  const user = await requireUser("admin");
   const { error } = await supabase.from("change_requests").insert({
     task_id: taskId,
     title,
     description: description || null,
     hours,
     requested_on: requestedOn,
-    status: sendNow ? "pending_client" : "approved",
-    ...(sendNow ? {} : { client_approved_by: user.id, client_approved_at: new Date().toISOString() }),
+    status: agreed ? "approved" : sendNow ? "pending_client" : "reviewed",
+    ...(agreed ? { client_approved_by: user.id, client_approved_at: new Date().toISOString() } : {}),
+    ...(sendNow || agreed ? {} : { reviewed_by: user.id, reviewed_at: new Date().toISOString() }),
   });
   if (error) return fail(`Could not add the change request: ${error.message}`);
 
-  if (!sendNow) {
+  if (!sendNow && !agreed) {
+    refresh(clientId);
+    return { ok: true, message: `Change request added: +${hours} hours. Send it to the client when you're ready.` };
+  }
+  if (agreed) {
     // Already agreed with the client: re-open a finished task so the extra work can be logged.
     await supabase.from("tasks").update({ status: "open" }).eq("id", taskId).eq("client_id", clientId);
     refresh(clientId);
@@ -667,7 +711,7 @@ export async function reviewEntryAction(_prev: ActionState, form: FormData): Pro
   if (decision === "reject" && !note) return fail("Add a short reason so the freelancer knows what to fix.");
 
   const update: Record<string, unknown> = {
-    status: decision === "approve" ? "awaiting_client" : "rejected",
+    status: decision === "approve" ? "reviewed" : "rejected",
     review_note: note || null,
     reviewed_by: admin.id,
     reviewed_at: new Date().toISOString(),
@@ -687,9 +731,8 @@ export async function reviewEntryAction(_prev: ActionState, form: FormData): Pro
     refresh(data.client_id);
     return { ok: true, message: "Rejected. The freelancer can see your note." };
   }
-  const email = describeNotify(await notifyClient(data.client_id));
   refresh(data.client_id);
-  return { ok: true, message: `Sent to the client to approve. ${email}`.trim() };
+  return { ok: true, message: "Approved. It's under \"Approved, not sent yet\" until you send it to the client." };
 }
 
 // ---------------------------------------------------------------------------
@@ -824,19 +867,35 @@ export async function deleteMyEntryAction(_prev: ActionState, form: FormData): P
 // Admin: sending hours to the client
 // ---------------------------------------------------------------------------
 
-/** Approve every freelancer entry waiting for review for one client, and email the client once. */
+/** Approve every freelancer entry waiting for review for one client. Nothing is sent to the client. */
 export async function approveAllForClientAction(_prev: ActionState, form: FormData): Promise<ActionState> {
   const admin = await requireAdmin();
   const clientId = clientIdFrom(form);
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("time_entries")
-    .update({ status: "awaiting_client", reviewed_by: admin.id, reviewed_at: new Date().toISOString(), review_note: null })
+    .update({ status: "reviewed", reviewed_by: admin.id, reviewed_at: new Date().toISOString(), review_note: null })
     .eq("client_id", clientId)
     .eq("status", "pending")
     .select("id");
   if (error) return fail(`Could not approve: ${error.message}`);
   if (!data?.length) return fail("Nothing is waiting for review for this client.");
+
+  refresh(clientId);
+  return { ok: true, message: `Approved ${data.length} ${data.length === 1 ? "entry" : "entries"}. Send them to the client when you're ready.` };
+}
+
+/** Send approved hours to the client (all of them, or the ticked ones) in one email. */
+export async function sendHoursToClientAction(_prev: ActionState, form: FormData): Promise<ActionState> {
+  await requireAdmin();
+  const clientId = clientIdFrom(form);
+  const ids = form.getAll("entryId").map(String).filter((v) => UUID.test(v));
+  const supabase = await createClient();
+  let query = supabase.from("time_entries").update({ status: "awaiting_client" }).eq("client_id", clientId).eq("status", "reviewed");
+  if (ids.length) query = query.in("id", ids);
+  const { data, error } = await query.select("id");
+  if (error) return fail(`Could not send: ${error.message}`);
+  if (!data?.length) return fail("Nothing approved is waiting to be sent to this client. Refresh the page.");
 
   const email = describeNotify(await notifyClient(clientId));
   refresh(clientId);
@@ -943,10 +1002,10 @@ export async function requestChangeAction(_prev: ActionState, form: FormData): P
     reason,
   });
   revalidatePath("/portal/work");
-  return { ok: true, message: `Sent. ERP VERS will review your request for ${hours} extra hours, then the client approves it. You can log the extra hours once it's approved.` };
+  return { ok: true, message: `Sent. ERP VERS will review your request for ${hours} extra hours. You can log the extra hours once it's approved.` };
 }
 
-/** Admin: approve a freelancer's request (optionally changing the hours) and send it to the client, or decline it. */
+/** Admin: approve a freelancer's request (optionally changing the hours), or decline it. Approving sends nothing to the client. */
 export async function reviewChangeRequestAction(_prev: ActionState, form: FormData): Promise<ActionState> {
   const admin = await requireAdmin();
   const id = text(form, "id");
@@ -977,16 +1036,40 @@ export async function reviewChangeRequestAction(_prev: ActionState, form: FormDa
   if (title.length < 1 || title.length > 160) return fail("Give the change a short title (the client sees it).");
   const { error } = await supabase
     .from("change_requests")
-    .update({ status: "pending_client", hours, title, reviewed_by: admin.id, reviewed_at: new Date().toISOString() })
+    .update({ status: "reviewed", hours, title, reviewed_by: admin.id, reviewed_at: new Date().toISOString() })
     .eq("id", id);
   if (error) return fail(`Could not save: ${error.message}`);
+  refresh(clientId);
+  revalidatePath("/portal/admin/review");
+  return { ok: true, message: `Approved (+${hours} h). Send it to the client, or approve it without the client, when you're ready.` };
+}
+
+/** Admin: send approved change requests to the client (one, or all waiting) in one email. */
+export async function sendChangesToClientAction(_prev: ActionState, form: FormData): Promise<ActionState> {
+  await requireAdmin();
+  const clientId = clientIdFrom(form);
+  const id = text(form, "id");
+  if (id && !UUID.test(id)) return fail("Invalid change request.");
+  const supabase = await createClient();
+  const tasks = await supabase.from("tasks").select("id").eq("client_id", clientId);
+  if (tasks.error) return fail(`Could not send: ${tasks.error.message}`);
+  let query = supabase
+    .from("change_requests")
+    .update({ status: "pending_client" })
+    .eq("status", "reviewed")
+    .in("task_id", (tasks.data ?? []).map((t) => t.id));
+  if (id) query = query.eq("id", id);
+  const { data, error } = await query.select("id");
+  if (error) return fail(`Could not send: ${error.message}`);
+  if (!data?.length) return fail("Nothing approved is waiting to be sent to this client. Refresh the page.");
+
   const email = await notifyClientChangeRequests(clientId);
   refresh(clientId);
   revalidatePath("/portal/admin/review");
-  return { ok: true, message: `Sent to the client to approve (+${hours} h). ${email}`.trim() };
+  return { ok: true, message: `Sent to the client to approve. ${email}`.trim() };
 }
 
-/** Admin: the client approved by phone or email. */
+/** Admin: the client approved by phone or email, or ERP VERS approves without asking the client. */
 export async function markChangeApprovedAction(_prev: ActionState, form: FormData): Promise<ActionState> {
   const admin = await requireAdmin();
   const clientId = clientIdFrom(form);
@@ -997,14 +1080,15 @@ export async function markChangeApprovedAction(_prev: ActionState, form: FormDat
     .from("change_requests")
     .update({ status: "approved", client_approved_by: admin.id, client_approved_at: new Date().toISOString() })
     .eq("id", id)
-    .eq("status", "pending_client")
+    .in("status", ["reviewed", "pending_client"])
     .select("task_id")
     .maybeSingle();
   if (error) return fail(`Could not save: ${error.message}`);
-  if (!data) return fail("This change request isn't waiting for the client.");
+  if (!data) return fail("This change request was already handled. Refresh the page.");
   await supabase.from("tasks").update({ status: "open" }).eq("id", data.task_id).eq("client_id", clientId);
   refresh(clientId);
-  return { ok: true, message: "Marked as approved by the client. The freelancer can now log the extra hours." };
+  revalidatePath("/portal/admin/review");
+  return { ok: true, message: "Approved. The task's limit has grown and the freelancer can now log the extra hours." };
 }
 
 /** Admin: send (or re-send) the change-request email to the client. */

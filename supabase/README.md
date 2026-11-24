@@ -11,8 +11,10 @@ The client portal lives at `/portal`. There are three kinds of account:
   requests, review freelancer hours, and record prepaid purchases at
   `/portal/admin`.
 
-How hours flow: a freelancer logs hours -> you review them -> the client gets
-an email from your support address and approves them in the portal. Clients can
+How hours flow: a freelancer logs hours -> you approve them -> when you're
+ready, you send them to the client -> the client gets an email from your
+support address and approves them in the portal. Approving and sending are
+separate buttons, and the client sees nothing until you send it. Clients can
 only approve; if something looks wrong they contact you, and you fix or delete
 the entry. Hours count against the prepaid balance once you've sent them.
 
@@ -24,7 +26,9 @@ Until the two environment variables below are set, `/portal` shows a
 1. Create a free project at supabase.com. Pick the region closest to most of
    your clients.
 2. Open **SQL Editor -> New query**, paste all of
-   `supabase/migrations/0001_client_portal.sql`, and click **Run**.
+   `supabase/migrations/0001_client_portal.sql`, and click **Run**. Then do the
+   same, in order, for `0002_rates_and_change_requests.sql` and
+   `0003_approve_then_send.sql`.
 
 ## 2. Configure sign-in
 
@@ -105,7 +109,16 @@ action runs as you, and the database checks you are an admin.
    select id, email from auth.users where email = 'support@erpvers.com';
    ```
 
-3. Sign in at `/portal`. You'll land on the admin page.
+3. Sign in at `/portal/login/admin`. You'll land on the admin page.
+
+## Sign-in pages
+
+- Clients: `/portal/login` (Client login in the site menu and footer)
+- Freelancers and employees: `/portal/login/employee` (Employee login)
+- Admin: `/portal/login/admin` (not linked from the site; bookmark it)
+
+Each page only signs in its own kind of account and points anyone else to
+the right page.
 
 ## Day to day
 
@@ -120,7 +133,8 @@ action runs as you, and the database checks you are an admin.
 
 **New freelancer**
 1. Admin -> Freelancers -> Invite (name + email).
-2. They register with that email and see their tasks straight away.
+2. They register with that email (the invite links to the employee version of
+   the register page) and sign in on Employee login to see their tasks.
 
 **Requirements and changes**
 1. On the client page, create a task per requirement with your hour estimate
@@ -130,10 +144,13 @@ action runs as you, and the database checks you are an admin.
 3. If the client asks for changes, open the task -> Add change request with
    the extra hours. The task's estimate grows by that amount and the
    freelancer can log the extra work against the change request.
-4. Admin -> Hours to review: approve (you can adjust the hours) or reject with
-   a reason. Approving sends the hours to the client: they get one email and
-   approve in the portal. "Approve all" sends a whole batch in a single email.
-   Hours you log yourself go to the client the same way.
+4. Admin -> To review: approve (you can adjust the hours) or reject with a
+   reason. Approving does not email the client. Approved hours move to
+   "Approved, not sent yet", where "Send hours to client" sends them all in
+   one email. Extra-hour requests work the same way: approve, then "Send to
+   client", or "Approve without client" to add the hours straight away.
+   Hours you log yourself count as approved; tick "Send to the client now" to
+   send them at once.
 5. On the client page, "Awaiting the client's approval" shows what they
    haven't approved yet. "Email client" resends (or reminds), and "Mark
    approved" records an approval they gave you by email or phone.

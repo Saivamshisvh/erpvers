@@ -115,6 +115,7 @@ export default function TaskCard({ task, showPending = false, showAssignees = fa
 
 const CHANGE_STATUS: Record<ChangeRequestStatus, { label: string; className: string }> = {
   requested: { label: "Waiting for ERP VERS", className: "bg-amber-50 text-amber-800" },
+  reviewed: { label: "Approved by ERP VERS, not sent to client", className: "bg-violet-50 text-violet-700" },
   pending_client: { label: "Waiting for client approval", className: "bg-blue-50 text-blue-700" },
   approved: { label: "Approved", className: "bg-emerald-50 text-emerald-700" },
   rejected: { label: "Declined", className: "bg-red-50 text-red-700" },

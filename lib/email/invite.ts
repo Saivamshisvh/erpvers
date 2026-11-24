@@ -22,7 +22,10 @@ const esc = (s: string) =>
 export function buildInviteEmail(input: Input) {
   const { role, email, name, clientName, alreadyRegistered, portalUrl, supportEmail } = input;
   const base = portalUrl.replace(/\/$/, "");
-  const actionUrl = alreadyRegistered ? `${base}/login` : `${base}/register?email=${encodeURIComponent(email)}`;
+  const employee = role === "freelancer";
+  const actionUrl = alreadyRegistered
+    ? `${base}/login${employee ? "/employee" : ""}`
+    : `${base}/register?email=${encodeURIComponent(email)}${employee ? "&as=employee" : ""}`;
   const buttonLabel = alreadyRegistered ? "Sign in to the portal" : "Create your account";
 
   const subject =

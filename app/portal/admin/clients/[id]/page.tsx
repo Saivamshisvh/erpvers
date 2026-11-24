@@ -17,6 +17,8 @@ import {
   deletePurchaseAction,
   deleteTaskAction,
   markChangeApprovedAction,
+  sendChangesToClientAction,
+  sendHoursToClientAction,
   setClientRatesAction,
   removeDomainAction,
   removeInviteAction,
@@ -31,6 +33,7 @@ import {
   getClientMoney,
   getDashboardData,
   getFreelancers,
+  getReadyToSend,
   getReviewQueue,
   requireAdmin,
   type ClientMoney,
@@ -105,10 +108,21 @@ function TaskAdmin({ task, clientId, freelancers }: { task: Task; clientId: stri
               <Field label="Requested on" name="requestedOn" type="date" required defaultValue={todayIso()} />
             </div>
             <TextArea label="Details (optional, the client sees this)" name="description" maxLength={2000} rows={2} />
-            <label className="flex items-start gap-2 text-sm text-slate-600">
-              <input type="checkbox" name="approved" value="yes" className="mt-1 accent-blue-600" />
-              The client has already agreed (skip their approval and the email)
-            </label>
+            <fieldset className="grid gap-1.5 text-sm text-slate-600">
+              <legend className="mb-1 text-sm font-semibold text-slate-700">Then</legend>
+              <label className="flex items-start gap-2">
+                <input type="radio" name="next" value="hold" defaultChecked className="mt-1 accent-blue-600" />
+                Keep it as approved by me, and send it to the client later
+              </label>
+              <label className="flex items-start gap-2">
+                <input type="radio" name="next" value="send" className="mt-1 accent-blue-600" />
+                Send it to the client now for their approval
+              </label>
+              <label className="flex items-start gap-2">
+                <input type="radio" name="next" value="agreed" className="mt-1 accent-blue-600" />
+                The client has already agreed (add the hours now, no email)
+              </label>
+            </fieldset>
           </ActionForm>
         </div>
       </details>
@@ -142,8 +156,24 @@ function TaskAdmin({ task, clientId, freelancers }: { task: Task; clientId: stri
                     <span>
                       {cr.title} (+{formatHours(cr.hours)} h)
                     </span>
-                    {cr.status === "pending_client" && (
-                      <ActionForm action={markChangeApprovedAction} variant="subtle" submitLabel="Mark approved" pendingLabel="Saving…" confirmMessage={`Mark "${cr.title}" as approved by the client (for example, they agreed by email)?`}>
+                    {cr.status === "reviewed" && (
+                      <ActionForm action={sendChangesToClientAction} variant="subtle" submitLabel="Send to client" pendingLabel="Sending…">
+                        <input type="hidden" name="clientId" value={clientId} />
+                        <input type="hidden" name="id" value={cr.id} />
+                      </ActionForm>
+                    )}
+                    {(cr.status === "pending_client" || cr.status === "reviewed") && (
+                      <ActionForm
+                        action={markChangeApprovedAction}
+                        variant="subtle"
+                        submitLabel={cr.status === "reviewed" ? "Approve without client" : "Mark approved"}
+                        pendingLabel="Saving…"
+                        confirmMessage={
+                          cr.status === "reviewed"
+                            ? `Add ${formatHours(cr.hours)} h for "${cr.title}" without asking the client?`
+                            : `Mark "${cr.title}" as approved by the client (for example, they agreed by email)?`
+                        }
+                      >
                         <input type="hidden" name="clientId" value={clientId} />
                         <input type="hidden" name="id" value={cr.id} />
                       </ActionForm>
@@ -171,12 +201,13 @@ export default async function AdminClientPage({ params }: { params: Promise<{ id
   await requireAdmin();
   const { id } = await params;
   if (!UUID.test(id)) notFound();
-  const [data, access, { freelancers }, queue, emailState] = await Promise.all([
+  const [data, access, { freelancers }, queue, emailState, readyAll] = await Promise.all([
     getDashboardData(id),
     getClientAccess(id),
     getFreelancers(),
     getReviewQueue(),
     getClientEmailState(id),
+    getReadyToSend(),
   ]);
   if (!data) notFound();
   const money = await getClientMoney(id, data.purchases, data.tasks);
@@ -184,6 +215,8 @@ export default async function AdminClientPage({ params }: { params: Promise<{ id
   const { client, members, tasks } = data;
   const activeFreelancers = freelancers.filter((f) => f.active);
   const waiting = queue.filter((e) => e.client_id === client.id);
+  const ready = readyAll.filter((e) => e.client_id === client.id);
+  const readyHours = ready.reduce((s, e) => s + e.hours, 0);
   const hidden = <input type="hidden" name="clientId" value={client.id} />;
   const tiers = [...PREPAID_TIERS].reverse().map((t) => `${t.label}: ${t.discountPct}%`).join(" · ");
 
@@ -200,6 +233,23 @@ export default async function AdminClientPage({ params }: { params: Promise<{ id
           </Link>
         )}
       </div>
+
+      {ready.length > 0 && (
+        <div className="mt-5 flex flex-col gap-3 rounded-2xl border border-emerald-200 bg-emerald-50/60 p-4 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm text-emerald-950">
+            <span className="font-semibold">Approved, not sent yet:</span> {ready.length} {ready.length === 1 ? "entry" : "entries"},{" "}
+            {formatHours(readyHours)} h. {client.name} can&apos;t see these until you send them.
+          </p>
+          <ActionForm
+            action={sendHoursToClientAction}
+            submitLabel={`Send to client (${formatHours(readyHours)} h)`}
+            pendingLabel="Sending…"
+            confirmMessage={`Send ${formatHours(readyHours)} hours to ${client.name} to approve? They get one email.`}
+          >
+            {hidden}
+          </ActionForm>
+        </div>
+      )}
 
       {/* Tasks */}
       <section className="mt-8" aria-labelledby="tasks-heading">
@@ -230,7 +280,7 @@ export default async function AdminClientPage({ params }: { params: Promise<{ id
       <MoneyPanel clientId={client.id} money={money} />
 
       <div className="mt-10 grid gap-6 lg:grid-cols-2 [&>*]:min-w-0">
-        <Panel title="Log hours yourself" description="Hours you log go straight to the client to approve, and they get an email.">
+        <Panel title="Log hours yourself" description="Hours you log count as approved by you. Send them to the client now, or later with the rest.">
           <ActionForm action={addEntryAction} submitLabel="Log hours" pendingLabel="Logging…">
             {hidden}
             <div className="grid gap-4 sm:grid-cols-[1fr_1fr_7rem]">
@@ -252,6 +302,10 @@ export default async function AdminClientPage({ params }: { params: Promise<{ id
               </label>
             )}
             <TextArea label="Work done" name="description" required maxLength={1000} rows={3} placeholder="What was done, in words the client will understand" />
+            <label className="flex items-start gap-2 text-sm text-slate-600">
+              <input type="checkbox" name="sendNow" value="yes" className="mt-1 accent-blue-600" />
+              Send to the client now (they get an email)
+            </label>
           </ActionForm>
         </Panel>
 

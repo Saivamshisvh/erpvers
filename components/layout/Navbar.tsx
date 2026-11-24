@@ -80,7 +80,8 @@ export default function Navbar() {
             ))}
           </div>
           <div className="flex items-center gap-3">
-            <Link href="/portal" className="hidden text-sm font-semibold text-slate-700 hover:text-blue-600 lg:mr-2 lg:block">Client login</Link>
+            <Link href="/portal/login" className="hidden text-sm font-semibold text-slate-700 hover:text-blue-600 lg:block">Client login</Link>
+            <Link href="/portal/login/employee" className="hidden text-sm font-semibold text-slate-700 hover:text-blue-600 lg:mr-2 lg:block">Employee login</Link>
             <Link href="/contact" className="hidden text-sm font-semibold text-slate-700 hover:text-blue-600 sm:block">Contact</Link>
             <Button href="/contact" className="px-4 py-2.5">Start a conversation</Button>
 
@@ -131,7 +132,8 @@ export default function Navbar() {
                   </Link>
                 ))}
                 <Link href="/contact" className="block rounded-xl px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-blue-50 hover:text-blue-700">Contact</Link>
-                <Link href="/portal" className="block rounded-xl px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-blue-50 hover:text-blue-700">Client login</Link>
+                <Link href="/portal/login" className="block rounded-xl px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-blue-50 hover:text-blue-700">Client login</Link>
+                <Link href="/portal/login/employee" className="block rounded-xl px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-blue-50 hover:text-blue-700">Employee login</Link>
               </div>
             </div>
           </div>

@@ -1,14 +1,16 @@
 import Link from "next/link";
-import { getChangeRequestQueue } from "@/lib/portal/data";
+import { getChangeRequestQueue, getChangesReadyToSend, getReadyToSend } from "@/lib/portal/data";
 
 type AdminNavProps = { current: "clients" | "review" | "freelancers"; reviewCount: number; registrationCount: number };
 
 export default async function AdminNav({ current, reviewCount, registrationCount }: AdminNavProps) {
   // Extra-hours requests from freelancers wait on the same review page as their hours.
-  const changeRequests = await getChangeRequestQueue();
+  // Approved items not sent to the client yet also need a click from you.
+  const [changeRequests, readyHours, readyChanges] = await Promise.all([getChangeRequestQueue(), getReadyToSend(), getChangesReadyToSend()]);
+  const readyClients = new Set([...readyHours, ...readyChanges].map((r) => r.client_id)).size;
   const items = [
     { key: "clients", href: "/portal/admin", label: "Clients", count: registrationCount },
-    { key: "review", href: "/portal/admin/review", label: "To review", count: reviewCount + changeRequests.length },
+    { key: "review", href: "/portal/admin/review", label: "To review", count: reviewCount + changeRequests.length + readyClients },
     { key: "freelancers", href: "/portal/admin/freelancers", label: "Freelancers", count: 0 },
   ] as const;
   return (

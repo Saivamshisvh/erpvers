@@ -3,15 +3,47 @@ import Link from "next/link";
 import ActionForm from "@/components/portal/ActionForm";
 import AdminNav from "@/components/portal/AdminNav";
 import { inputClass } from "@/components/portal/fields";
-import { approveAllForClientAction, reviewChangeRequestAction, reviewEntryAction } from "@/lib/portal/actions";
-import { getChangeRequestQueue, getPendingRegistrations, getReviewQueue, requireAdmin, type ReviewEntry } from "@/lib/portal/data";
+import {
+  approveAllForClientAction,
+  markChangeApprovedAction,
+  reviewChangeRequestAction,
+  reviewEntryAction,
+  sendChangesToClientAction,
+  sendHoursToClientAction,
+} from "@/lib/portal/actions";
+import {
+  getChangeRequestQueue,
+  getChangesReadyToSend,
+  getPendingRegistrations,
+  getReadyToSend,
+  getReviewQueue,
+  requireAdmin,
+  type ChangeRequestReview,
+  type ReviewEntry,
+} from "@/lib/portal/data";
 import { formatDate, formatHours } from "@/lib/portal/format";
 
 export const metadata: Metadata = { title: "To review" };
 
 export default async function ReviewPage() {
   await requireAdmin();
-  const [queue, registrations, changes] = await Promise.all([getReviewQueue(), getPendingRegistrations(), getChangeRequestQueue()]);
+  const [queue, registrations, changes, readyHours, readyChanges] = await Promise.all([
+    getReviewQueue(),
+    getPendingRegistrations(),
+    getChangeRequestQueue(),
+    getReadyToSend(),
+    getChangesReadyToSend(),
+  ]);
+
+  // Approved but not sent yet, one group per client.
+  const ready = new Map<string, { name: string; entries: ReviewEntry[]; changes: ChangeRequestReview[] }>();
+  const readyGroup = (id: string, name: string) => {
+    const g = ready.get(id) ?? { name, entries: [], changes: [] };
+    ready.set(id, g);
+    return g;
+  };
+  for (const e of readyHours) readyGroup(e.client_id, e.client_name).entries.push(e);
+  for (const c of readyChanges) readyGroup(c.client_id, c.client_name).changes.push(c);
 
   const groups = new Map<string, { name: string; entries: ReviewEntry[] }>();
   for (const e of queue) {
@@ -30,7 +62,7 @@ export default async function ReviewPage() {
         <section aria-labelledby="changes-heading" className="mt-8">
           <h2 id="changes-heading" className="text-lg font-bold tracking-tight text-slate-950">Extra hours requested</h2>
           <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">
-            Approving sends the change request to the client by email. The task&apos;s hour limit only grows once the client approves.
+            Approving does not email the client. Approved requests move to &quot;Approved, not sent yet&quot; below, where you send them to the client or approve them without the client.
           </p>
           <ul className="mt-4 grid gap-3">
             {changes.map((c) => (
@@ -46,7 +78,7 @@ export default async function ReviewPage() {
                   <p className="mt-1 text-xs text-slate-500">Requested {formatDate(c.requested_on)}</p>
                 </div>
                 <div className="flex flex-wrap items-start gap-3 lg:justify-end">
-                  <ActionForm action={reviewChangeRequestAction} submitLabel="Approve and email client" pendingLabel="Sending…" className="w-full sm:w-auto">
+                  <ActionForm action={reviewChangeRequestAction} submitLabel="Approve" pendingLabel="Approving…" className="w-full sm:w-auto">
                     <input type="hidden" name="id" value={c.id} />
                     <input type="hidden" name="decision" value="approve" />
                     <label className="grid gap-1.5">
@@ -79,7 +111,8 @@ export default async function ReviewPage() {
       )}
 
       {queue.length === 0 ? (
-        changes.length === 0 && (
+        changes.length === 0 &&
+        ready.size === 0 && (
           <p className="mt-8 rounded-2xl border border-dashed border-slate-300 bg-white px-6 py-12 text-center text-slate-500">
             Nothing waiting. Freelancer hours and extra-hour requests appear here.
           </p>
@@ -88,8 +121,8 @@ export default async function ReviewPage() {
         <>
           <h2 className="mt-10 text-lg font-bold tracking-tight text-slate-950">Hours logged</h2>
           <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">
-            Approving sends the hours to the client: they get one email from your support address and approve them in the
-            portal. Approved hours count against the client&apos;s prepaid balance straight away.
+            Approving does not email the client. Approved hours move to &quot;Approved, not sent yet&quot; below. The client
+            only sees them, and they only count against the prepaid balance, once you send them.
           </p>
           <div className="mt-6 grid gap-8">
             {[...groups.entries()].map(([clientId, group]) => {
@@ -108,9 +141,9 @@ export default async function ReviewPage() {
                     {group.entries.length > 1 && (
                       <ActionForm
                         action={approveAllForClientAction}
-                        submitLabel={`Approve all and email client (${formatHours(total)} h)`}
-                        pendingLabel="Sending…"
-                        confirmMessage={`Approve all ${group.entries.length} entries as logged and email ${group.name}?`}
+                        submitLabel={`Approve all (${formatHours(total)} h)`}
+                        pendingLabel="Approving…"
+                        confirmMessage={`Approve all ${group.entries.length} entries as logged? Nothing is sent to ${group.name} yet.`}
                       >
                         <input type="hidden" name="clientId" value={clientId} />
                       </ActionForm>
@@ -130,7 +163,7 @@ export default async function ReviewPage() {
                           <p className="mt-1 text-sm leading-6 text-slate-600">{e.description}</p>
                         </div>
                         <div className="flex flex-wrap items-start gap-3 lg:justify-end">
-                          <ActionForm action={reviewEntryAction} submitLabel="Approve and email client" pendingLabel="Sending…" className="w-full sm:w-auto">
+                          <ActionForm action={reviewEntryAction} submitLabel="Approve" pendingLabel="Approving…" className="w-full sm:w-auto">
                             <input type="hidden" name="id" value={e.id} />
                             <input type="hidden" name="decision" value="approve" />
                             <label className="grid gap-1.5">
@@ -160,6 +193,94 @@ export default async function ReviewPage() {
             })}
           </div>
         </>
+      )}
+
+      {ready.size > 0 && (
+        <section aria-labelledby="ready-heading" className="mt-12">
+          <h2 id="ready-heading" className="text-lg font-bold tracking-tight text-slate-950">Approved, not sent yet</h2>
+          <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">
+            You approved these. The client can&apos;t see them yet. Send them to the client when you&apos;re ready: they get
+            one email from your support address and approve in the portal.
+          </p>
+          <div className="mt-6 grid gap-8">
+            {[...ready.entries()].map(([clientId, group]) => {
+              const hours = group.entries.reduce((s, e) => s + e.hours, 0);
+              return (
+                <section key={clientId} aria-labelledby={`ready-${clientId}`} className="rounded-2xl border border-emerald-200 bg-white p-5">
+                  <div className="flex flex-wrap items-end justify-between gap-3">
+                    <h3 id={`ready-${clientId}`} className="text-base font-bold tracking-tight text-slate-950">
+                      <Link href={`/portal/admin/clients/${clientId}`} className="hover:text-blue-600">{group.name}</Link>
+                    </h3>
+                  </div>
+
+                  {group.changes.length > 0 && (
+                    <div className="mt-4">
+                      <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">Extra hours</p>
+                      <ul className="mt-2 grid gap-3">
+                        {group.changes.map((c) => (
+                          <li key={c.id} className="flex flex-col gap-3 border-t border-slate-100 pt-3 sm:flex-row sm:items-start sm:justify-between">
+                            <div className="min-w-0 text-sm">
+                              <p className="text-slate-500">{c.task_title}</p>
+                              <p className="mt-0.5 font-semibold text-slate-950">+{formatHours(c.hours)} h: {c.title}</p>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-3">
+                              <ActionForm action={sendChangesToClientAction} submitLabel="Send to client" pendingLabel="Sending…">
+                                <input type="hidden" name="clientId" value={clientId} />
+                                <input type="hidden" name="id" value={c.id} />
+                              </ActionForm>
+                              <ActionForm
+                                action={markChangeApprovedAction}
+                                variant="subtle"
+                                submitLabel="Approve without client"
+                                pendingLabel="Saving…"
+                                confirmMessage={`Add ${formatHours(c.hours)} h to "${c.task_title}" without asking ${group.name}?`}
+                              >
+                                <input type="hidden" name="clientId" value={clientId} />
+                                <input type="hidden" name="id" value={c.id} />
+                              </ActionForm>
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {group.entries.length > 0 && (
+                    <div className="mt-5">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">
+                          Hours: {group.entries.length} {group.entries.length === 1 ? "entry" : "entries"}, {formatHours(hours)} h
+                        </p>
+                        <ActionForm
+                          action={sendHoursToClientAction}
+                          submitLabel={`Send hours to client (${formatHours(hours)} h)`}
+                          pendingLabel="Sending…"
+                          confirmMessage={`Send ${formatHours(hours)} hours to ${group.name} to approve? They get one email.`}
+                        >
+                          <input type="hidden" name="clientId" value={clientId} />
+                        </ActionForm>
+                      </div>
+                      <ul className="mt-2 grid gap-2">
+                        {group.entries.map((e) => (
+                          <li key={e.id} className="border-t border-slate-100 pt-2 text-sm">
+                            <p className="text-slate-500">
+                              {e.task_title ?? "No task"}
+                              {e.change_request_title && <> · Change: {e.change_request_title}</>}
+                            </p>
+                            <p className="mt-0.5 text-slate-900">
+                              <span className="font-semibold">{e.consultant} · {formatHours(e.hours)} h on {formatDate(e.work_date)}</span>
+                              <span className="text-slate-600">: {e.description}</span>
+                            </p>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </section>
+              );
+            })}
+          </div>
+        </section>
       )}
     </div>
   );

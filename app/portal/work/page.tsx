@@ -21,8 +21,8 @@ export default async function FreelancerWorkPage() {
       <p className="text-sm font-bold uppercase tracking-[0.16em] text-blue-600">Freelancer</p>
       <h1 className="mt-2 text-3xl font-bold tracking-tight text-slate-950">{profile.full_name}&apos;s tasks</h1>
       <p className="mt-2 max-w-2xl text-slate-600">
-        Log your hours against each task. ERP VERS reviews them and then sends them to the client to approve. If a
-        task needs more hours than estimated, request extra hours on the task. You can log them once the client approves.
+        Log your hours against each task. They show here straight away, and ERP VERS reviews them. If a
+        task needs more hours than estimated, request extra hours on the task. You can log them once they&apos;re approved.
       </p>
 
       <section aria-label="Your earnings" className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -56,7 +56,7 @@ export default async function FreelancerWorkPage() {
                 <TaskEarnings task={task} />
                 {remaining <= 0 ? (
                   <p className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900">
-                    The hours for this task are used up. Request extra hours below; you can log them once the client approves.
+                    The hours for this task are used up. Request extra hours below; you can log them once they&apos;re approved.
                   </p>
                 ) : (
                   <ActionForm action={logHoursAction} submitLabel="Log hours" pendingLabel="Logging…">
@@ -100,7 +100,7 @@ export default async function FreelancerWorkPage() {
                         <Field label="What's the extra work" name="title" required maxLength={160} placeholder="e.g. Extra validation on import" />
                         <Field label="Extra hours" name="hours" type="number" required min="0.25" step="0.25" />
                       </div>
-                      <TextArea label="Why it's needed" name="description" required maxLength={2000} rows={2} placeholder="ERP VERS reviews this, then the client approves it" />
+                      <TextArea label="Why it's needed" name="description" required maxLength={2000} rows={2} placeholder="ERP VERS reviews this first" />
                     </ActionForm>
                   </div>
                 </details>

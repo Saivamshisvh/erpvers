@@ -33,7 +33,7 @@ export default async function PortalLayout({ children }: { children: React.React
             <Logo />
             <span className="hidden h-6 w-px bg-slate-200 sm:block" />
             <Link href="/portal" className="hidden text-sm font-semibold text-slate-700 hover:text-blue-600 sm:block">
-              Client portal
+              {isAdmin ? "Admin" : isFreelancer ? "Employee portal" : "Client portal"}
             </Link>
           </div>
           {user && (
