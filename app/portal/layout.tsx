@@ -18,11 +18,12 @@ export default async function PortalLayout({ children }: { children: React.React
   await connection();
   const configured = isPortalConfigured();
   const user = configured ? await getCurrentUser() : null;
-  const isAdmin = user ? await getIsAdmin() : false;
+  // Look up both roles at once rather than one after the other.
+  const [isAdmin, freelancer] = user ? await Promise.all([getIsAdmin(), getFreelancerProfile()]) : [false, null];
   const pendingCount = isAdmin
     ? (await Promise.all([getPendingRegistrations(), getReviewQueue()])).reduce((n, list) => n + list.length, 0)
     : 0;
-  const isFreelancer = user && !isAdmin ? Boolean(await getFreelancerProfile()) : false;
+  const isFreelancer = Boolean(user && !isAdmin && freelancer);
 
   return (
     <div className="flex min-h-screen flex-col bg-slate-50">
