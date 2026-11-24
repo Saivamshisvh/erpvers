@@ -42,7 +42,8 @@ export async function sendEmail(email: OutgoingEmail) {
   const from = process.env.MAIL_FROM ?? `ERP VERS <${process.env.SMTP_USER}>`;
   const addressing =
     email.mode === "direct"
-      ? { to: email.to, bcc: from } // The recipient sees their own address; support keeps a copy.
+      ? // The recipient sees their own address; support keeps a copy (unless the email is to support).
+        { to: email.to, bcc: email.to.some((t) => from.toLowerCase().includes(t.toLowerCase())) ? undefined : from }
       : { to: from, bcc: email.to }; // Each recipient sees only their own address.
   await transport.sendMail({
     from,

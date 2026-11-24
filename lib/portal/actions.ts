@@ -5,7 +5,8 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { discountForHours } from "@/lib/prepaid";
 import { getPendingRegistrations, requireAdmin, requireFreelancer, requireUser } from "@/lib/portal/data";
-import { describeNotify, notifyClient, sendInviteEmail } from "@/lib/portal/notify";
+import { describeNotify, notifyAdminOfChangeRequest, notifyClient, notifyClientChangeRequests, sendInviteEmail } from "@/lib/portal/notify";
+import { CURRENCIES } from "@/lib/portal/format";
 import { isPortalConfigured } from "@/lib/supabase/config";
 import { createClient } from "@/lib/supabase/server";
 
@@ -341,19 +342,31 @@ export async function addPurchaseAction(_prev: ActionState, form: FormData): Pro
   if (!Number.isFinite(discount) || discount < 0 || discount > 100) return fail("Discount must be between 0 and 100.");
   if (!DATE.test(purchasedOn)) return fail("Pick the purchase date.");
   if (reference.length > 120) return fail("Reference is too long (120 characters max).");
+  const rateRaw = text(form, "hourlyRate");
+  const rateInput = rateRaw === "" ? null : Number(rateRaw);
+  if (rateInput != null && (!Number.isFinite(rateInput) || rateInput < 0)) return fail("Rate must be 0 or more.");
 
   const supabase = await createClient();
+  const rates = await supabase.from("client_rates").select("currency, hourly_rate").eq("client_id", clientId).maybeSingle();
+  const hourlyRate = rateInput ?? (rates.data?.hourly_rate == null ? null : Number(rates.data.hourly_rate));
+  const currency = rates.data?.currency ?? "USD";
   const { error } = await supabase.from("hour_purchases").insert({
     client_id: clientId,
     hours,
     discount_pct: discount,
     purchased_on: purchasedOn,
     reference: reference || null,
+    hourly_rate: hourlyRate,
+    currency: hourlyRate == null ? null : currency,
   });
   if (error) return fail(`Could not record the purchase: ${error.message}`);
 
   refresh(clientId);
-  return { ok: true, message: `Recorded ${hours} hours at ${discount}% discount.` };
+  const amount = hourlyRate == null ? "" : ` (${currency} ${(Math.round(hours * hourlyRate * (1 - discount / 100) * 100) / 100).toLocaleString("en-US")})`;
+  return {
+    ok: true,
+    message: `Recorded ${hours} hours at ${discount}% discount${amount}.${hourlyRate == null ? " Set the client's hourly rate to see amounts." : ""}`,
+  };
 }
 
 export async function deletePurchaseAction(_prev: ActionState, form: FormData): Promise<ActionState> {
@@ -473,6 +486,22 @@ function taskIdFrom(form: FormData) {
   return id;
 }
 
+/** Per-assignee rates from inputs named rate_<userId>. Empty means "no rate yet". */
+function readAssigneeRates(form: FormData, userIds: string[]): Map<string, number | null> | { error: string } {
+  const rates = new Map<string, number | null>();
+  for (const id of userIds) {
+    const raw = text(form, `rate_${id}`);
+    if (raw === "") {
+      rates.set(id, null);
+      continue;
+    }
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n < 0 || n > 1_000_000) return { error: "Freelancer rates must be 0 or more (INR per hour)." };
+    rates.set(id, n);
+  }
+  return rates;
+}
+
 function readTaskFields(form: FormData) {
   const title = text(form, "title");
   const description = text(form, "description");
@@ -489,6 +518,8 @@ export async function createTaskAction(_prev: ActionState, form: FormData): Prom
   const clientId = clientIdFrom(form);
   const fields = readTaskFields(form);
   if ("error" in fields) return fail(fields.error!);
+  const rates = readAssigneeRates(form, fields.assignees);
+  if ("error" in rates) return fail(rates.error as string);
 
   const supabase = await createClient();
   const { data, error } = await supabase
@@ -499,7 +530,9 @@ export async function createTaskAction(_prev: ActionState, form: FormData): Prom
   if (error) return fail(`Could not create the task: ${error.message}`);
 
   if (fields.assignees.length > 0) {
-    const assign = await supabase.from("task_assignments").insert(fields.assignees.map((user_id) => ({ task_id: data.id, user_id })));
+    const assign = await supabase
+      .from("task_assignments")
+      .insert(fields.assignees.map((user_id) => ({ task_id: data.id, user_id, hourly_rate_inr: rates.get(user_id) ?? null })));
     if (assign.error) return fail(`Task created, but assigning failed: ${assign.error.message}`);
   }
 
@@ -514,6 +547,8 @@ export async function updateTaskAction(_prev: ActionState, form: FormData): Prom
   const fields = readTaskFields(form);
   if ("error" in fields) return fail(fields.error!);
   const status = text(form, "status") === "done" ? "done" : "open";
+  const rates = readAssigneeRates(form, fields.assignees);
+  if ("error" in rates) return fail(rates.error as string);
 
   const supabase = await createClient();
   const { error } = await supabase
@@ -524,7 +559,7 @@ export async function updateTaskAction(_prev: ActionState, form: FormData): Prom
   if (error) return fail(`Could not save the task: ${error.message}`);
 
   // Replace assignments with the boxes that are ticked.
-  const current = await supabase.from("task_assignments").select("user_id").eq("task_id", taskId);
+  const current = await supabase.from("task_assignments").select("user_id, hourly_rate_inr").eq("task_id", taskId);
   if (current.error) return fail(current.error.message);
   const have = new Set((current.data ?? []).map((a) => a.user_id));
   const want = new Set(fields.assignees);
@@ -535,8 +570,17 @@ export async function updateTaskAction(_prev: ActionState, form: FormData): Prom
     if (r.error) return fail(r.error.message);
   }
   if (add.length) {
-    const a = await supabase.from("task_assignments").insert(add.map((user_id) => ({ task_id: taskId, user_id })));
+    const a = await supabase.from("task_assignments").insert(add.map((user_id) => ({ task_id: taskId, user_id, hourly_rate_inr: rates.get(user_id) ?? null })));
     if (a.error) return fail(a.error.message);
+  }
+  for (const row of current.data ?? []) {
+    if (!want.has(row.user_id)) continue;
+    const next = rates.get(row.user_id) ?? null;
+    const prev = row.hourly_rate_inr == null ? null : Number(row.hourly_rate_inr);
+    if (next !== prev) {
+      const u = await supabase.from("task_assignments").update({ hourly_rate_inr: next }).eq("task_id", taskId).eq("user_id", row.user_id);
+      if (u.error) return fail(u.error.message);
+    }
   }
 
   refresh(clientId);
@@ -569,16 +613,28 @@ export async function addChangeRequestAction(_prev: ActionState, form: FormData)
   if (!DATE.test(requestedOn)) return fail("Pick the date the change was requested.");
 
   const supabase = await createClient();
-  const { error } = await supabase
-    .from("change_requests")
-    .insert({ task_id: taskId, title, description: description || null, hours, requested_on: requestedOn });
+  const sendNow = text(form, "approved") !== "yes";
+  const user = await requireUser();
+  const { error } = await supabase.from("change_requests").insert({
+    task_id: taskId,
+    title,
+    description: description || null,
+    hours,
+    requested_on: requestedOn,
+    status: sendNow ? "pending_client" : "approved",
+    ...(sendNow ? {} : { client_approved_by: user.id, client_approved_at: new Date().toISOString() }),
+  });
   if (error) return fail(`Could not add the change request: ${error.message}`);
 
-  // Re-open a finished task so the freelancer can log the extra work.
-  await supabase.from("tasks").update({ status: "open" }).eq("id", taskId).eq("client_id", clientId);
-
+  if (!sendNow) {
+    // Already agreed with the client: re-open a finished task so the extra work can be logged.
+    await supabase.from("tasks").update({ status: "open" }).eq("id", taskId).eq("client_id", clientId);
+    refresh(clientId);
+    return { ok: true, message: `Change request added and approved: +${hours} hours.` };
+  }
+  const email = await notifyClientChangeRequests(clientId);
   refresh(clientId);
-  return { ok: true, message: `Change request added: +${hours} hours.` };
+  return { ok: true, message: `Change request sent to the client for approval: +${hours} hours. ${email}`.trim() };
 }
 
 export async function deleteChangeRequestAction(_prev: ActionState, form: FormData): Promise<ActionState> {
@@ -702,11 +758,12 @@ function friendlyEntryError(message: string) {
   if (exceeded) {
     const left = Number(exceeded[1]);
     return left > 0
-      ? `Only ${left} hours are left on this task's estimate. If the work needs more, ask ERP VERS to add a change request.`
-      : "This task's estimate is used up. Ask ERP VERS to add a change request if more work is needed.";
+      ? `Only ${left} hours are left on this task's estimate. If the work needs more, request extra hours on the task.`
+      : "This task's hours are used up. Request extra hours on the task if more work is needed.";
   }
   if (message.includes("TASK_CLOSED")) return "This task is marked done, so hours can't be logged on it.";
   if (message.includes("CHANGE_REQUEST_MISMATCH")) return "That change request belongs to a different task.";
+  if (message.includes("CHANGE_REQUEST_NOT_APPROVED")) return "That change request isn't approved by the client yet, so hours can't be logged on it.";
   if (message.includes("row-level security")) return "You're not assigned to this task.";
   return `Could not log the hours: ${message}`;
 }
@@ -843,4 +900,170 @@ export async function clientApproveAction(_prev: ActionState, form: FormData): P
 
   revalidatePath("/portal", "layout");
   return { ok: true, message: `Thank you. ${n} ${n === 1 ? "entry" : "entries"} approved.` };
+}
+
+// ---------------------------------------------------------------------------
+// Change requests: freelancer asks, ERP VERS reviews, client approves
+// ---------------------------------------------------------------------------
+
+export async function requestChangeAction(_prev: ActionState, form: FormData): Promise<ActionState> {
+  const profile = await requireFreelancer();
+  const taskId = text(form, "taskId");
+  const title = text(form, "title");
+  const reason = text(form, "description");
+  const hours = num(form, "hours");
+  if (!UUID.test(taskId)) return fail("Pick a task.");
+  if (title.length < 1 || title.length > 160) return fail("Say in a few words what the extra work is.");
+  if (reason.length < 1 || reason.length > 2000) return fail("Explain why the extra hours are needed (up to 2,000 characters).");
+  if (!Number.isFinite(hours) || hours <= 0 || hours > 1000) return fail("Extra hours must be more than 0.");
+
+  const supabase = await createClient();
+  const task = await supabase.from("tasks").select("title, client:clients(name)").eq("id", taskId).maybeSingle();
+  if (!task.data) return fail("You're not assigned to this task.");
+  const { error } = await supabase.from("change_requests").insert({
+    task_id: taskId,
+    title,
+    description: reason,
+    hours,
+    status: "requested",
+    requested_by: profile.user_id,
+  });
+  if (error) {
+    if (error.message.includes("TASK_CLOSED")) return fail("This task is marked done. Contact ERP VERS if more work is needed.");
+    return fail(`Could not send the request: ${error.message}`);
+  }
+
+  await notifyAdminOfChangeRequest({
+    freelancer: profile.full_name,
+    taskTitle: task.data.title,
+    clientName: (task.data.client as unknown as { name: string } | null)?.name ?? "Client",
+    title,
+    hours,
+    reason,
+  });
+  revalidatePath("/portal/work");
+  return { ok: true, message: `Sent. ERP VERS will review your request for ${hours} extra hours, then the client approves it. You can log the extra hours once it's approved.` };
+}
+
+/** Admin: approve a freelancer's request (optionally changing the hours) and send it to the client, or decline it. */
+export async function reviewChangeRequestAction(_prev: ActionState, form: FormData): Promise<ActionState> {
+  const admin = await requireAdmin();
+  const id = text(form, "id");
+  const decision = text(form, "decision");
+  if (!UUID.test(id)) return fail("Invalid change request.");
+  const supabase = await createClient();
+  const cr = await supabase.from("change_requests").select("id, status, task:tasks(client_id)").eq("id", id).maybeSingle();
+  if (!cr.data || cr.data.status !== "requested") return fail("This request was already handled. Refresh the page.");
+  const clientId = (cr.data.task as unknown as { client_id: string } | null)?.client_id;
+  if (!clientId) return fail("Task not found.");
+
+  if (decision === "reject") {
+    const note = text(form, "note");
+    if (note.length < 1 || note.length > 500) return fail("Give a short reason (the freelancer sees it).");
+    const { error } = await supabase
+      .from("change_requests")
+      .update({ status: "rejected", review_note: note, reviewed_by: admin.id, reviewed_at: new Date().toISOString() })
+      .eq("id", id);
+    if (error) return fail(`Could not save: ${error.message}`);
+    refresh(clientId);
+    revalidatePath("/portal/admin/review");
+    return { ok: true, message: "Declined. The freelancer can see your reason." };
+  }
+
+  const hours = num(form, "hours");
+  const title = text(form, "title");
+  if (!Number.isFinite(hours) || hours <= 0 || hours > 1000) return fail("Extra hours must be more than 0.");
+  if (title.length < 1 || title.length > 160) return fail("Give the change a short title (the client sees it).");
+  const { error } = await supabase
+    .from("change_requests")
+    .update({ status: "pending_client", hours, title, reviewed_by: admin.id, reviewed_at: new Date().toISOString() })
+    .eq("id", id);
+  if (error) return fail(`Could not save: ${error.message}`);
+  const email = await notifyClientChangeRequests(clientId);
+  refresh(clientId);
+  revalidatePath("/portal/admin/review");
+  return { ok: true, message: `Sent to the client to approve (+${hours} h). ${email}`.trim() };
+}
+
+/** Admin: the client approved by phone or email. */
+export async function markChangeApprovedAction(_prev: ActionState, form: FormData): Promise<ActionState> {
+  const admin = await requireAdmin();
+  const clientId = clientIdFrom(form);
+  const id = text(form, "id");
+  if (!UUID.test(id)) return fail("Invalid change request.");
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("change_requests")
+    .update({ status: "approved", client_approved_by: admin.id, client_approved_at: new Date().toISOString() })
+    .eq("id", id)
+    .eq("status", "pending_client")
+    .select("task_id")
+    .maybeSingle();
+  if (error) return fail(`Could not save: ${error.message}`);
+  if (!data) return fail("This change request isn't waiting for the client.");
+  await supabase.from("tasks").update({ status: "open" }).eq("id", data.task_id).eq("client_id", clientId);
+  refresh(clientId);
+  return { ok: true, message: "Marked as approved by the client. The freelancer can now log the extra hours." };
+}
+
+/** Admin: send (or re-send) the change-request email to the client. */
+export async function emailClientChangesAction(_prev: ActionState, form: FormData): Promise<ActionState> {
+  await requireAdmin();
+  const clientId = clientIdFrom(form);
+  const message = await notifyClientChangeRequests(clientId, { reminder: true });
+  refresh(clientId);
+  return { ok: !/couldn't|isn't set up|Nobody|Nothing/.test(message), message };
+}
+
+/** Client: approve change requests (one, or all waiting). */
+export async function clientApproveChangesAction(_prev: ActionState, form: FormData): Promise<ActionState> {
+  await requireUser();
+  const clientId = clientIdFrom(form);
+  const ids = form.getAll("changeId").map(String).filter((v) => UUID.test(v));
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("client_approve_change_requests", { p_client_id: clientId, p_ids: ids.length ? ids : null });
+  if (error) return fail("Something went wrong saving your approval. Please try again, or contact us.");
+  const n = Number(data ?? 0);
+  if (n === 0) return fail("Already approved. Refresh the page to see the latest.");
+  revalidatePath("/portal", "layout");
+  return { ok: true, message: `Thank you. ${n === 1 ? "The change request is" : `${n} change requests are`} approved and the work can go ahead.` };
+}
+
+// ---------------------------------------------------------------------------
+// Rates
+// ---------------------------------------------------------------------------
+
+export async function setClientRatesAction(_prev: ActionState, form: FormData): Promise<ActionState> {
+  await requireAdmin();
+  const clientId = clientIdFrom(form);
+  const currency = text(form, "currency").toUpperCase();
+  const rateRaw = text(form, "hourlyRate");
+  const fxRaw = text(form, "inrPerUnit");
+  if (!(CURRENCIES as readonly string[]).includes(currency)) return fail("Pick a currency.");
+  const hourlyRate = rateRaw === "" ? null : Number(rateRaw);
+  if (hourlyRate != null && (!Number.isFinite(hourlyRate) || hourlyRate < 0)) return fail("Hourly rate must be 0 or more.");
+  const inrPerUnit = currency === "INR" ? 1 : fxRaw === "" ? null : Number(fxRaw);
+  if (inrPerUnit != null && (!Number.isFinite(inrPerUnit) || inrPerUnit <= 0)) return fail("Exchange rate must be more than 0.");
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("client_rates")
+    .upsert({ client_id: clientId, currency, hourly_rate: hourlyRate, inr_per_unit: inrPerUnit, updated_at: new Date().toISOString() });
+  if (error) return fail(`Could not save rates: ${error.message}`);
+  refresh(clientId);
+  return { ok: true, message: "Rates saved. New purchases use this rate; earlier purchases keep theirs." };
+}
+
+export async function setFreelancerRateAction(_prev: ActionState, form: FormData): Promise<ActionState> {
+  await requireAdmin();
+  const userId = text(form, "userId");
+  const raw = text(form, "rate");
+  if (!UUID.test(userId)) return fail("Invalid freelancer.");
+  const rate = raw === "" ? null : Number(raw);
+  if (rate != null && (!Number.isFinite(rate) || rate < 0 || rate > 1_000_000)) return fail("Rate must be 0 or more (INR per hour).");
+  const supabase = await createClient();
+  const { error } = await supabase.from("freelancers").update({ default_rate_inr: rate }).eq("user_id", userId);
+  if (error) return fail(`Could not save: ${error.message}`);
+  revalidatePath("/portal/admin/freelancers");
+  return { ok: true, message: "Default rate saved. It's filled in when you assign them to a task." };
 }

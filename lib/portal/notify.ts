@@ -2,6 +2,7 @@ import "server-only";
 import { headers } from "next/headers";
 import { buildHoursApprovalEmail, type ApprovalEmailEntry } from "@/lib/email/hoursApproval";
 import { buildInviteEmail } from "@/lib/email/invite";
+import { buildChangeRequestEmail, type ChangeEmailItem } from "@/lib/email/changeRequest";
 import { isEmailConfigured, sendEmail } from "@/lib/email/mailer";
 import { createClient } from "@/lib/supabase/server";
 
@@ -126,5 +127,82 @@ export async function sendInviteEmail(input: {
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     return `The email to ${input.email} couldn't be sent (${reason}). Use "Resend email" or send them the link yourself.`;
+  }
+}
+
+const supportAddress = () => process.env.MAIL_REPLY_TO ?? process.env.SMTP_USER ?? "support@erpvers.com";
+
+/**
+ * Emails a client's people about change requests waiting for their approval.
+ * Normal mode sends only ones not emailed before; reminder mode re-sends all that are waiting.
+ * Must be called by an admin (row level security enforces it). Returns one sentence for the admin.
+ */
+export async function notifyClientChangeRequests(clientId: string, { reminder = false } = {}): Promise<string> {
+  const supabase = await createClient();
+  const [clientRes, membersRes, crRes] = await Promise.all([
+    supabase.from("clients").select("name").eq("id", clientId).single(),
+    supabase.from("client_members").select("email").eq("client_id", clientId),
+    supabase
+      .from("change_requests")
+      .select("id, title, description, hours, client_notified_at, task:tasks!inner(title, client_id)")
+      .eq("status", "pending_client")
+      .eq("task.client_id", clientId)
+      .order("created_at"),
+  ]);
+  for (const r of [clientRes, membersRes, crRes]) if (r.error) return `The client email couldn't be prepared (${r.error.message}).`;
+
+  type Row = { id: string; title: string; description: string | null; hours: number; client_notified_at: string | null; task: { title: string } | null };
+  const waiting = (crRes.data ?? []) as unknown as Row[];
+  const toSend = reminder ? waiting : waiting.filter((c) => !c.client_notified_at);
+  if (toSend.length === 0) return reminder ? "Nothing is waiting for the client's approval." : "";
+  if (!isEmailConfigured()) return "Email isn't set up yet, so the client wasn't emailed. They'll see it when they sign in.";
+  const recipients = [...new Set((membersRes.data ?? []).map((m) => m.email.toLowerCase()))];
+  if (recipients.length === 0) return "Nobody at this client has portal access yet, so no email went out.";
+
+  const items: ChangeEmailItem[] = toSend.map((c) => ({ task_title: c.task?.title ?? "Task", title: c.title, description: c.description, hours: Number(c.hours) }));
+  const email = buildChangeRequestEmail({
+    clientName: clientRes.data!.name,
+    items,
+    portalUrl: await portalUrl(),
+    supportEmail: supportAddress(),
+    isReminder: reminder,
+  });
+  try {
+    await sendEmail({ to: recipients, ...email });
+  } catch (error) {
+    return `The client email couldn't be sent (${error instanceof Error ? error.message : String(error)}). Use "Email client" to try again.`;
+  }
+  const ids = toSend.filter((c) => !c.client_notified_at).map((c) => c.id);
+  if (ids.length) await supabase.from("change_requests").update({ client_notified_at: new Date().toISOString() }).in("id", ids);
+  return `Emailed ${recipients.length} ${recipients.length === 1 ? "person" : "people"} at the client to approve.`;
+}
+
+/** Tells ERP VERS (the support mailbox) that a freelancer asked for extra hours. Best effort. */
+export async function notifyAdminOfChangeRequest(input: { freelancer: string; taskTitle: string; clientName: string; title: string; hours: number; reason: string }) {
+  if (!isEmailConfigured()) return;
+  const base = (await portalUrl()).replace(/\/$/, "");
+  const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const subject = `${input.freelancer} asked for ${input.hours} extra hours on ${input.taskTitle}`;
+  const lines = [
+    `${input.freelancer} asked for ${input.hours} extra hours.`,
+    `Client: ${input.clientName}`,
+    `Task: ${input.taskTitle}`,
+    `Change: ${input.title}`,
+    input.reason ? `Reason: ${input.reason}` : "",
+    "",
+    `Review it: ${base}/admin/review`,
+  ].filter((l, i, a) => l !== "" || a[i - 1] !== "");
+  try {
+    await sendEmail({
+      to: [supportAddress()],
+      subject,
+      text: lines.join("\n"),
+      html: `<div style="font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;font-size:14px;line-height:1.6;color:#0f172a;">${lines
+        .map((l) => (l.startsWith("Review it: ") ? `<p><a href="${esc(l.slice(11))}" style="color:#2563eb;font-weight:700;">Review it in the portal</a></p>` : `<div>${esc(l) || "&nbsp;"}</div>`))
+        .join("")}</div>`,
+      mode: "direct",
+    });
+  } catch {
+    // The request is saved and shows in Admin -> To review either way.
   }
 }

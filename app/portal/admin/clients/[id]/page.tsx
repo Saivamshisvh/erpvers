@@ -16,6 +16,8 @@ import {
   deleteEntryAction,
   deletePurchaseAction,
   deleteTaskAction,
+  markChangeApprovedAction,
+  setClientRatesAction,
   removeDomainAction,
   removeInviteAction,
   resendClientInviteAction,
@@ -23,17 +25,33 @@ import {
   updateClientAction,
   updateTaskAction,
 } from "@/lib/portal/actions";
-import { getClientAccess, getClientEmailState, getDashboardData, getFreelancers, getReviewQueue, requireAdmin, type Task } from "@/lib/portal/data";
-import { formatHours, todayIso } from "@/lib/portal/format";
+import {
+  getClientAccess,
+  getClientEmailState,
+  getClientMoney,
+  getDashboardData,
+  getFreelancers,
+  getReviewQueue,
+  requireAdmin,
+  type ClientMoney,
+  type Task,
+} from "@/lib/portal/data";
+import { CURRENCIES, formatHours, formatMoney, todayIso } from "@/lib/portal/format";
 import { PREPAID_TIERS } from "@/lib/prepaid";
 
 export const metadata: Metadata = { title: "Manage client" };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-type FreelancerOption = { user_id: string; full_name: string };
+type FreelancerOption = { user_id: string; full_name: string; default_rate_inr: number | null };
 
-function AssigneeChecks({ freelancers, selected = [] }: { freelancers: FreelancerOption[]; selected?: string[] }) {
+function AssigneeChecks({
+  freelancers,
+  selected = [],
+}: {
+  freelancers: FreelancerOption[];
+  selected?: { user_id: string; hourly_rate_inr: number | null }[];
+}) {
   if (freelancers.length === 0) {
     return (
       <p className="text-sm text-slate-500">
@@ -43,15 +61,26 @@ function AssigneeChecks({ freelancers, selected = [] }: { freelancers: Freelance
   }
   return (
     <fieldset className="grid gap-2">
-      <legend className="mb-1.5 text-sm font-semibold text-slate-700">Assign to</legend>
-      <div className="flex flex-wrap gap-2">
-        {freelancers.map((f) => (
-          <label key={f.user_id} className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-slate-200 px-3 py-1.5 text-sm has-[:checked]:border-blue-300 has-[:checked]:bg-blue-50">
-            <input type="checkbox" name="assignees" value={f.user_id} defaultChecked={selected.includes(f.user_id)} className="accent-blue-600" />
-            {f.full_name}
-          </label>
-        ))}
+      <legend className="mb-1.5 text-sm font-semibold text-slate-700">Assign to, with their rate for this task</legend>
+      <div className="grid gap-2">
+        {freelancers.map((f) => {
+          const current = selected.find((a) => a.user_id === f.user_id);
+          const rate = current ? current.hourly_rate_inr : f.default_rate_inr;
+          return (
+            <div key={f.user_id} className="flex flex-wrap items-center gap-3 rounded-lg border border-slate-200 px-3 py-1.5 text-sm has-[:checked]:border-blue-300 has-[:checked]:bg-blue-50">
+              <label className="inline-flex min-w-40 flex-1 cursor-pointer items-center gap-2">
+                <input type="checkbox" name="assignees" value={f.user_id} defaultChecked={Boolean(current)} className="accent-blue-600" />
+                {f.full_name}
+              </label>
+              <label className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500">
+                ₹/h
+                <input name={`rate_${f.user_id}`} type="number" min="0" step="1" defaultValue={rate ?? ""} placeholder="Rate" className={`${inputClass} w-24 py-1`} />
+              </label>
+            </div>
+          );
+        })}
       </div>
+      <p className="text-xs text-slate-500">The freelancer sees only their own rate. Clients never see it.</p>
     </fieldset>
   );
 }
@@ -68,14 +97,18 @@ function TaskAdmin({ task, clientId, freelancers }: { task: Task; clientId: stri
       <details className="group rounded-xl border border-slate-200 open:bg-slate-50/60">
         <summary className="cursor-pointer px-4 py-2.5 text-sm font-semibold text-slate-700">Add change request</summary>
         <div className="px-4 pb-4">
-          <ActionForm action={addChangeRequestAction} submitLabel="Add hours to this task" pendingLabel="Adding…">
+          <ActionForm action={addChangeRequestAction} submitLabel="Add change request" pendingLabel="Adding…">
             {hidden}
             <div className="grid gap-4 sm:grid-cols-[1fr_6rem_9.5rem]">
               <Field label="What changed" name="title" required maxLength={160} placeholder="e.g. Add approval step" />
               <Field label="Extra hours" name="hours" type="number" required min="0.25" step="0.25" />
               <Field label="Requested on" name="requestedOn" type="date" required defaultValue={todayIso()} />
             </div>
-            <TextArea label="Details (optional)" name="description" maxLength={2000} rows={2} />
+            <TextArea label="Details (optional, the client sees this)" name="description" maxLength={2000} rows={2} />
+            <label className="flex items-start gap-2 text-sm text-slate-600">
+              <input type="checkbox" name="approved" value="yes" className="mt-1 accent-blue-600" />
+              The client has already agreed (skip their approval and the email)
+            </label>
           </ActionForm>
         </div>
       </details>
@@ -97,18 +130,24 @@ function TaskAdmin({ task, clientId, freelancers }: { task: Task; clientId: stri
               </label>
             </div>
             <TextArea label="Description" name="description" maxLength={2000} rows={2} defaultValue={task.description ?? ""} />
-            <AssigneeChecks freelancers={freelancers} selected={task.assignees.map((a) => a.user_id)} />
+            <AssigneeChecks freelancers={freelancers} selected={task.assignees} />
           </ActionForm>
 
           {task.changeRequests.length > 0 && (
             <div>
-              <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">Remove a change request</p>
+              <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">Change requests</p>
               <ul className="mt-2 grid gap-1.5">
                 {task.changeRequests.map((cr) => (
                   <li key={cr.id} className="flex items-center justify-between gap-3 text-sm text-slate-700">
                     <span>
                       {cr.title} (+{formatHours(cr.hours)} h)
                     </span>
+                    {cr.status === "pending_client" && (
+                      <ActionForm action={markChangeApprovedAction} variant="subtle" submitLabel="Mark approved" pendingLabel="Saving…" confirmMessage={`Mark "${cr.title}" as approved by the client (for example, they agreed by email)?`}>
+                        <input type="hidden" name="clientId" value={clientId} />
+                        <input type="hidden" name="id" value={cr.id} />
+                      </ActionForm>
+                    )}
                     <ActionForm action={deleteChangeRequestAction} variant="subtle" submitLabel="Delete" pendingLabel="Deleting…" confirmMessage={`Delete change request "${cr.title}"?`}>
                       <input type="hidden" name="clientId" value={clientId} />
                       <input type="hidden" name="id" value={cr.id} />
@@ -140,6 +179,7 @@ export default async function AdminClientPage({ params }: { params: Promise<{ id
     getClientEmailState(id),
   ]);
   if (!data) notFound();
+  const money = await getClientMoney(id, data.purchases, data.tasks);
 
   const { client, members, tasks } = data;
   const activeFreelancers = freelancers.filter((f) => f.active);
@@ -165,7 +205,7 @@ export default async function AdminClientPage({ params }: { params: Promise<{ id
       <section className="mt-8" aria-labelledby="tasks-heading">
         <h2 id="tasks-heading" className="text-xl font-bold tracking-tight text-slate-950">Tasks</h2>
         <p className="mt-1 text-sm text-slate-600">
-          Freelancers can only log hours on tasks assigned to them, up to the estimate plus change requests. Only you can change estimates.
+          Freelancers can only log hours on tasks assigned to them, up to the estimate plus change requests the client has approved. Only you can change estimates.
         </p>
         <div className="mt-5 grid gap-5 lg:grid-cols-2 [&>*]:min-w-0">
           {tasks.map((task) => (
@@ -186,6 +226,8 @@ export default async function AdminClientPage({ params }: { params: Promise<{ id
           </Panel>
         </div>
       </section>
+
+      <MoneyPanel clientId={client.id} money={money} />
 
       <div className="mt-10 grid gap-6 lg:grid-cols-2 [&>*]:min-w-0">
         <Panel title="Log hours yourself" description="Hours you log go straight to the client to approve, and they get an email.">
@@ -216,9 +258,18 @@ export default async function AdminClientPage({ params }: { params: Promise<{ id
         <Panel title="Record a prepaid purchase" description={`Leave discount empty to apply the tier automatically. ${tiers}.`}>
           <ActionForm action={addPurchaseAction} submitLabel="Record purchase" pendingLabel="Recording…">
             {hidden}
-            <div className="grid gap-4 sm:grid-cols-3">
+            <div className="grid gap-4 sm:grid-cols-2">
               <Field label="Hours" name="hours" type="number" required min="1" step="0.5" placeholder="100" />
               <Field label="Discount %" name="discountPct" type="number" min="0" max="100" step="0.5" placeholder="Auto" />
+              <Field
+                label={`Rate per hour (${money.rates.currency})`}
+                name="hourlyRate"
+                type="number"
+                min="0"
+                step="0.01"
+                placeholder={money.rates.hourly_rate != null ? String(money.rates.hourly_rate) : "Set a client rate"}
+                hint="Before discount. Empty uses the client's rate."
+              />
               <Field label="Date" name="purchasedOn" type="date" required defaultValue={todayIso()} />
             </div>
             <Field label="Reference" name="reference" maxLength={120} placeholder="Invoice or PO number (optional)" />
@@ -319,6 +370,99 @@ export default async function AdminClientPage({ params }: { params: Promise<{ id
           </ActionForm>
         )}
       />
+    </div>
+  );
+}
+
+function MoneyPanel({ clientId, money }: { clientId: string; money: ClientMoney }) {
+  const { rates, totals } = money;
+  const cur = rates.currency;
+  const inr = (n: number | null) => (n == null ? "-" : formatMoney(n, "INR"));
+  const needsFx = cur !== "INR" && rates.inr_per_unit == null;
+  return (
+    <section className="mt-10 rounded-2xl border border-slate-200 bg-white" aria-labelledby="money-heading">
+      <div className="border-b border-slate-100 px-5 py-4 sm:px-7">
+        <h2 id="money-heading" className="text-base font-bold tracking-tight text-slate-950">Rates and profit</h2>
+        <p className="mt-1 text-sm text-slate-500">Only you see this. Clients never see freelancer rates or your margin; freelancers never see the client&apos;s rate.</p>
+      </div>
+      <div className="grid gap-6 px-5 py-5 sm:px-7 lg:grid-cols-[18rem_1fr] [&>*]:min-w-0">
+        <ActionForm action={setClientRatesAction} submitLabel="Save rates" resetOnSuccess={false}>
+          <input type="hidden" name="clientId" value={clientId} />
+          <label className="grid gap-1.5">
+            <span className="text-sm font-semibold text-slate-700">Client currency</span>
+            <select name="currency" defaultValue={cur} className={inputClass}>
+              {CURRENCIES.map((c) => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+          </label>
+          <Field label="Hourly rate (before discount)" name="hourlyRate" type="number" min="0" step="0.01" defaultValue={rates.hourly_rate ?? ""} placeholder="e.g. 40" />
+          <Field
+            label="1 unit of client currency = ? INR"
+            name="inrPerUnit"
+            type="number"
+            min="0"
+            step="0.0001"
+            defaultValue={rates.inr_per_unit ?? ""}
+            placeholder="e.g. 84"
+            hint="Used to show your margin in INR. Ignored for INR clients."
+          />
+        </ActionForm>
+
+        <div className="min-w-0">
+          <dl className="grid gap-3 sm:grid-cols-4">
+            <Stat label="Prepaid received" value={money.prepaidAmount == null ? "-" : formatMoney(money.prepaidAmount, cur)} hint={money.netRate == null ? "Set a rate" : `${formatMoney(money.netRate, cur)}/h after discounts`} />
+            <Stat label="Billed so far" value={totals.clientAmount == null ? "-" : formatMoney(totals.clientAmount, cur)} hint={`${formatHours(totals.billedHours)} h sent to the client${totals.clientAmountInr != null && cur !== "INR" ? `, ${inr(totals.clientAmountInr)}` : ""}`} />
+            <Stat label="Freelancer cost" value={inr(totals.freelancerCostInr)} hint={totals.unratedHours > 0 ? `${formatHours(totals.unratedHours)} h without a rate` : "For the same hours"} />
+            <Stat label="Your margin" value={inr(totals.marginInr)} hint={needsFx ? "Add the INR exchange rate" : totals.clientAmountInr ? `${Math.round(((totals.marginInr ?? 0) / totals.clientAmountInr) * 100)}% of billed` : ""} strong />
+          </dl>
+
+          {money.tasks.length > 0 && (
+            <div className="relative mt-5 overflow-x-auto">
+              <table className="w-full min-w-[640px] text-left text-sm">
+                <thead className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                  <tr>
+                    <th scope="col" className="py-2 pr-3">Task</th>
+                    <th scope="col" className="px-3 py-2 text-right">Hours billed</th>
+                    <th scope="col" className="px-3 py-2 text-right">Client amount</th>
+                    <th scope="col" className="px-3 py-2 text-right">Freelancer cost</th>
+                    <th scope="col" className="py-2 pl-3 text-right">Margin</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {money.tasks.map((t) => (
+                    <tr key={t.task_id}>
+                      <td className="py-2.5 pr-3 font-medium text-slate-900">{t.title}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums text-slate-700">{formatHours(t.billedHours)}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums text-slate-700">{t.clientAmount == null ? "-" : formatMoney(t.clientAmount, cur)}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums text-slate-700">
+                        {inr(t.freelancerCostInr)}
+                        {t.unratedHours > 0 && <span className="block text-xs text-amber-700">{formatHours(t.unratedHours)} h no rate</span>}
+                      </td>
+                      <td className={`py-2.5 pl-3 text-right font-semibold tabular-nums ${t.marginInr != null && t.marginInr < 0 ? "text-red-600" : "text-slate-950"}`}>{inr(t.marginInr)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <p className="mt-3 text-xs leading-5 text-slate-500">
+            Billed hours are hours sent to the client (waiting for approval or approved). Client amount uses the average rate the client
+            paid across purchases, after discounts. Freelancer cost uses each freelancer&apos;s current rate on the task; hours you log yourself
+            have no freelancer cost.
+          </p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function Stat({ label, value, hint, strong = false }: { label: string; value: string; hint?: string; strong?: boolean }) {
+  return (
+    <div className={`rounded-xl px-4 py-3 ${strong ? "bg-emerald-50" : "bg-slate-50"}`}>
+      <dt className="text-xs font-semibold text-slate-500">{label}</dt>
+      <dd className={`mt-0.5 text-lg font-bold tabular-nums ${strong ? "text-emerald-800" : "text-slate-950"}`}>{value}</dd>
+      {hint && <dd className="text-xs text-slate-500">{hint}</dd>}
     </div>
   );
 }

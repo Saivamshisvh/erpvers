@@ -1,11 +1,14 @@
 import Link from "next/link";
+import { getChangeRequestQueue } from "@/lib/portal/data";
 
 type AdminNavProps = { current: "clients" | "review" | "freelancers"; reviewCount: number; registrationCount: number };
 
-export default function AdminNav({ current, reviewCount, registrationCount }: AdminNavProps) {
+export default async function AdminNav({ current, reviewCount, registrationCount }: AdminNavProps) {
+  // Extra-hours requests from freelancers wait on the same review page as their hours.
+  const changeRequests = await getChangeRequestQueue();
   const items = [
     { key: "clients", href: "/portal/admin", label: "Clients", count: registrationCount },
-    { key: "review", href: "/portal/admin/review", label: "Hours to review", count: reviewCount },
+    { key: "review", href: "/portal/admin/review", label: "To review", count: reviewCount + changeRequests.length },
     { key: "freelancers", href: "/portal/admin/freelancers", label: "Freelancers", count: 0 },
   ] as const;
   return (

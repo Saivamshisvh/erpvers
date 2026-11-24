@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 import ActionForm from "@/components/portal/ActionForm";
 import AdminNav from "@/components/portal/AdminNav";
-import { Field, Panel } from "@/components/portal/fields";
-import { inviteFreelancerAction, resendFreelancerInviteAction, revokeFreelancerInviteAction, setFreelancerActiveAction } from "@/lib/portal/actions";
+import { Field, Panel, inputClass } from "@/components/portal/fields";
+import { inviteFreelancerAction, resendFreelancerInviteAction, revokeFreelancerInviteAction, setFreelancerActiveAction, setFreelancerRateAction } from "@/lib/portal/actions";
 import { getFreelancers, getPendingRegistrations, getReviewQueue, requireAdmin } from "@/lib/portal/data";
 import { formatDate } from "@/lib/portal/format";
 
@@ -30,7 +30,14 @@ export default async function FreelancersPage() {
                     <p className={`font-semibold ${f.active ? "text-slate-950" : "text-slate-400 line-through"}`}>{f.full_name}</p>
                     <p className="break-all text-sm text-slate-500">{f.email}</p>
                   </div>
-                  <div className="flex items-center gap-5">
+                  <div className="flex flex-wrap items-center gap-5">
+                    <ActionForm action={setFreelancerRateAction} variant="compact" submitLabel="Save rate" pendingLabel="Saving…" resetOnSuccess={false} className="flex flex-wrap items-center gap-2">
+                      <input type="hidden" name="userId" value={f.user_id} />
+                      <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-500">
+                        Default ₹/h
+                        <input name="rate" type="number" min="0" step="1" defaultValue={f.default_rate_inr ?? ""} placeholder="e.g. 1200" className={`${inputClass} w-28 py-1.5`} />
+                      </label>
+                    </ActionForm>
                     <span className="text-sm text-slate-500">
                       {f.active ? `${f.openTasks} open ${f.openTasks === 1 ? "task" : "tasks"}` : "No access"}
                     </span>

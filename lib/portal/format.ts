@@ -28,3 +28,16 @@ export function formatHours(hours: number) {
 export function todayIso() {
   return new Date().toISOString().slice(0, 10);
 }
+
+/** 1234.5, "USD" -> "$1,234.50"; INR uses Indian grouping ("₹1,23,456"). */
+export function formatMoney(amount: number, currency: string) {
+  const locale = currency === "INR" ? "en-IN" : "en-US";
+  try {
+    return new Intl.NumberFormat(locale, { style: "currency", currency, maximumFractionDigits: 2, minimumFractionDigits: Number.isInteger(amount) ? 0 : 2 }).format(amount);
+  } catch {
+    return `${currency} ${amount.toFixed(2)}`;
+  }
+}
+
+/** Currencies offered for client rates. */
+export const CURRENCIES = ["USD", "EUR", "GBP", "INR", "AED", "SGD", "AUD", "CAD", "CHF", "THB"] as const;

@@ -3,15 +3,15 @@ import ActionForm from "@/components/portal/ActionForm";
 import StatusBadge from "@/components/portal/StatusBadge";
 import TaskCard from "@/components/portal/TaskCard";
 import { Field, TextArea, inputClass } from "@/components/portal/fields";
-import { deleteMyEntryAction, logHoursAction } from "@/lib/portal/actions";
-import { getFreelancerWork, requireFreelancer } from "@/lib/portal/data";
-import { formatDate, formatHours, todayIso } from "@/lib/portal/format";
+import { deleteMyEntryAction, logHoursAction, requestChangeAction } from "@/lib/portal/actions";
+import { getFreelancerWork, requireFreelancer, type FreelancerTask } from "@/lib/portal/data";
+import { formatDate, formatHours, formatMoney, todayIso } from "@/lib/portal/format";
 
 export const metadata: Metadata = { title: "My work" };
 
 export default async function FreelancerWorkPage() {
   const profile = await requireFreelancer();
-  const { tasks, entries } = await getFreelancerWork();
+  const { tasks, entries, earnings } = await getFreelancerWork();
   const open = tasks.filter((t) => t.status === "open");
   const done = tasks.filter((t) => t.status === "done");
   const pendingTotal = entries.filter((e) => e.status === "pending").reduce((s, e) => s + e.hours, 0);
@@ -22,8 +22,26 @@ export default async function FreelancerWorkPage() {
       <h1 className="mt-2 text-3xl font-bold tracking-tight text-slate-950">{profile.full_name}&apos;s tasks</h1>
       <p className="mt-2 max-w-2xl text-slate-600">
         Log your hours against each task. ERP VERS reviews them and then sends them to the client to approve. If a
-        task needs more hours than estimated, ask ERP VERS to add a change request.
+        task needs more hours than estimated, request extra hours on the task. You can log them once the client approves.
       </p>
+
+      <section aria-label="Your earnings" className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="rounded-2xl border border-slate-200 bg-white p-5">
+          <p className="text-sm font-semibold text-slate-500">Earned</p>
+          <p className="mt-1 text-3xl font-bold tracking-tight tabular-nums text-slate-950">{formatMoney(earnings.earnedInr, "INR")}</p>
+          <p className="mt-1 text-xs text-slate-500">Hours ERP VERS has accepted, at your rate for each task.</p>
+        </div>
+        <div className="rounded-2xl border border-slate-200 bg-white p-5">
+          <p className="text-sm font-semibold text-slate-500">Waiting review</p>
+          <p className="mt-1 text-3xl font-bold tracking-tight tabular-nums text-amber-700">{formatMoney(earnings.waitingInr, "INR")}</p>
+          <p className="mt-1 text-xs text-slate-500">Added to Earned once ERP VERS accepts the hours.</p>
+        </div>
+        {earnings.missingRate && (
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">
+            Some of your tasks don&apos;t have a rate yet, so their amount isn&apos;t shown. ERP VERS will add it.
+          </div>
+        )}
+      </section>
 
       {open.length === 0 ? (
         <p className="mt-10 rounded-2xl border border-dashed border-slate-300 bg-white px-6 py-12 text-center text-slate-500">
@@ -35,9 +53,10 @@ export default async function FreelancerWorkPage() {
             const remaining = Math.max(task.totalEstimate - task.reviewedHours - task.pendingHours, 0);
             return (
               <TaskCard key={task.id} task={task} eyebrow={task.client_name} showPending>
+                <TaskEarnings task={task} />
                 {remaining <= 0 ? (
                   <p className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900">
-                    The estimate for this task is used up. Ask ERP VERS to add a change request before logging more.
+                    The hours for this task are used up. Request extra hours below; you can log them once the client approves.
                   </p>
                 ) : (
                   <ActionForm action={logHoursAction} submitLabel="Log hours" pendingLabel="Logging…">
@@ -56,12 +75,12 @@ export default async function FreelancerWorkPage() {
                         hint={`${formatHours(remaining)} left`}
                       />
                     </div>
-                    {task.changeRequests.length > 0 && (
+                    {task.changeRequests.some((cr) => cr.status === "approved") && (
                       <label className="grid gap-1.5">
                         <span className="text-sm font-semibold text-slate-700">Work for</span>
                         <select name="changeRequestId" defaultValue="" className={inputClass}>
                           <option value="">Original scope</option>
-                          {task.changeRequests.map((cr) => (
+                          {task.changeRequests.filter((cr) => cr.status === "approved").map((cr) => (
                             <option key={cr.id} value={cr.id}>
                               Change request: {cr.title}
                             </option>
@@ -72,6 +91,19 @@ export default async function FreelancerWorkPage() {
                     <TextArea label="What you did" name="description" required maxLength={1000} rows={2} placeholder="In words the client will understand" />
                   </ActionForm>
                 )}
+                <details className="mt-4 rounded-xl border border-slate-200 open:bg-slate-50/60" open={remaining <= 0}>
+                  <summary className="cursor-pointer px-4 py-2.5 text-sm font-semibold text-slate-700">Request extra hours</summary>
+                  <div className="px-4 pb-4">
+                    <ActionForm action={requestChangeAction} submitLabel="Send request" pendingLabel="Sending…">
+                      <input type="hidden" name="taskId" value={task.id} />
+                      <div className="grid gap-4 sm:grid-cols-[1fr_7rem]">
+                        <Field label="What's the extra work" name="title" required maxLength={160} placeholder="e.g. Extra validation on import" />
+                        <Field label="Extra hours" name="hours" type="number" required min="0.25" step="0.25" />
+                      </div>
+                      <TextArea label="Why it's needed" name="description" required maxLength={2000} rows={2} placeholder="ERP VERS reviews this, then the client approves it" />
+                    </ActionForm>
+                  </div>
+                </details>
               </TaskCard>
             );
           })}
@@ -140,5 +172,29 @@ export default async function FreelancerWorkPage() {
         )}
       </section>
     </div>
+  );
+}
+
+function TaskEarnings({ task }: { task: FreelancerTask }) {
+  if (task.rateInr == null) {
+    return <p className="mb-4 text-sm text-slate-500">Your rate for this task isn&apos;t set yet.</p>;
+  }
+  return (
+    <dl className="mb-5 grid grid-cols-3 gap-3 rounded-xl bg-slate-50 px-4 py-3 text-sm">
+      <div>
+        <dt className="text-xs font-semibold text-slate-500">Your rate</dt>
+        <dd className="mt-0.5 font-bold tabular-nums text-slate-950">{formatMoney(task.rateInr, "INR")}/h</dd>
+      </div>
+      <div>
+        <dt className="text-xs font-semibold text-slate-500">Earned</dt>
+        <dd className="mt-0.5 font-bold tabular-nums text-slate-950">{formatMoney(task.earnedInr ?? 0, "INR")}</dd>
+        <dd className="text-xs text-slate-500">{formatHours(task.myAcceptedHours)} h accepted</dd>
+      </div>
+      <div>
+        <dt className="text-xs font-semibold text-slate-500">Waiting review</dt>
+        <dd className="mt-0.5 font-bold tabular-nums text-amber-700">{formatMoney(task.waitingInr ?? 0, "INR")}</dd>
+        <dd className="text-xs text-slate-500">{formatHours(task.myWaitingHours)} h</dd>
+      </div>
+    </dl>
   );
 }

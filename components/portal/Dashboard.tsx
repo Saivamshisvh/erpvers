@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import Icon from "@/components/shared/Icon";
 import AwaitingApproval, { type EmailState } from "@/components/portal/AwaitingApproval";
+import ChangeApproval from "@/components/portal/ChangeApproval";
 import StatusBadge from "@/components/portal/StatusBadge";
 import TaskCard from "@/components/portal/TaskCard";
 import UsageChart from "@/components/portal/UsageChart";
@@ -25,6 +26,7 @@ export default function Dashboard({ data, entryAction, purchaseAction, mode = "c
       {awaiting.length > 0 && (
         <AwaitingApproval clientId={client.id} entries={awaiting} totalHours={summary.awaitingHours} mode={mode} emailState={emailState} />
       )}
+      <ChangeApproval clientId={client.id} tasks={tasks} mode={mode} />
       {summary.isOverdrawn && (
         <Alert tone="critical" title={`${formatHours(Math.abs(summary.remaining))} hours over your prepaid balance`}>
           Hours logged are now more than the hours purchased. Get in touch to top up your prepaid block.

@@ -3,15 +3,15 @@ import Link from "next/link";
 import ActionForm from "@/components/portal/ActionForm";
 import AdminNav from "@/components/portal/AdminNav";
 import { inputClass } from "@/components/portal/fields";
-import { approveAllForClientAction, reviewEntryAction } from "@/lib/portal/actions";
-import { getPendingRegistrations, getReviewQueue, requireAdmin, type ReviewEntry } from "@/lib/portal/data";
+import { approveAllForClientAction, reviewChangeRequestAction, reviewEntryAction } from "@/lib/portal/actions";
+import { getChangeRequestQueue, getPendingRegistrations, getReviewQueue, requireAdmin, type ReviewEntry } from "@/lib/portal/data";
 import { formatDate, formatHours } from "@/lib/portal/format";
 
-export const metadata: Metadata = { title: "Hours to review" };
+export const metadata: Metadata = { title: "To review" };
 
 export default async function ReviewPage() {
   await requireAdmin();
-  const [queue, registrations] = await Promise.all([getReviewQueue(), getPendingRegistrations()]);
+  const [queue, registrations, changes] = await Promise.all([getReviewQueue(), getPendingRegistrations(), getChangeRequestQueue()]);
 
   const groups = new Map<string, { name: string; entries: ReviewEntry[] }>();
   for (const e of queue) {
@@ -23,16 +23,71 @@ export default async function ReviewPage() {
   return (
     <div className="mx-auto max-w-7xl px-5 py-10 sm:px-8 sm:py-12 lg:px-10">
       <p className="text-sm font-bold uppercase tracking-[0.16em] text-blue-600">Admin</p>
-      <h1 className="mt-2 text-3xl font-bold tracking-tight text-slate-950">Hours to review</h1>
+      <h1 className="mt-2 text-3xl font-bold tracking-tight text-slate-950">To review</h1>
       <AdminNav current="review" reviewCount={queue.length} registrationCount={registrations.length} />
 
+      {changes.length > 0 && (
+        <section aria-labelledby="changes-heading" className="mt-8">
+          <h2 id="changes-heading" className="text-lg font-bold tracking-tight text-slate-950">Extra hours requested</h2>
+          <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">
+            Approving sends the change request to the client by email. The task&apos;s hour limit only grows once the client approves.
+          </p>
+          <ul className="mt-4 grid gap-3">
+            {changes.map((c) => (
+              <li key={c.id} className="grid gap-4 rounded-2xl border border-amber-200 bg-white p-5 lg:grid-cols-[1fr_auto] lg:items-start">
+                <div className="min-w-0">
+                  <p className="text-sm text-slate-500">
+                    <Link href={`/portal/admin/clients/${c.client_id}`} className="font-semibold hover:text-blue-600">{c.client_name}</Link> · {c.task_title}
+                  </p>
+                  <p className="mt-1.5 font-semibold text-slate-950">
+                    {c.requested_by_name ?? "Freelancer"} asks for +{formatHours(c.hours)} h: {c.title}
+                  </p>
+                  {c.description && <p className="mt-1 whitespace-pre-line text-sm leading-6 text-slate-600">{c.description}</p>}
+                  <p className="mt-1 text-xs text-slate-500">Requested {formatDate(c.requested_on)}</p>
+                </div>
+                <div className="flex flex-wrap items-start gap-3 lg:justify-end">
+                  <ActionForm action={reviewChangeRequestAction} submitLabel="Approve and email client" pendingLabel="Sending…" className="w-full sm:w-auto">
+                    <input type="hidden" name="id" value={c.id} />
+                    <input type="hidden" name="decision" value="approve" />
+                    <label className="grid gap-1.5">
+                      <span className="text-xs font-semibold text-slate-600">Title the client sees</span>
+                      <input name="title" required maxLength={160} defaultValue={c.title} className={`${inputClass} sm:w-64`} />
+                    </label>
+                    <label className="grid gap-1.5">
+                      <span className="text-xs font-semibold text-slate-600">Extra hours</span>
+                      <input name="hours" type="number" min="0.25" step="0.25" defaultValue={c.hours} className={`${inputClass} w-28`} />
+                    </label>
+                  </ActionForm>
+                  <details className="w-full sm:w-64">
+                    <summary className="cursor-pointer py-2 text-sm font-semibold text-slate-500 hover:text-red-600">Decline…</summary>
+                    <div className="mt-2">
+                      <ActionForm action={reviewChangeRequestAction} submitLabel="Decline" pendingLabel="Saving…">
+                        <input type="hidden" name="id" value={c.id} />
+                        <input type="hidden" name="decision" value="reject" />
+                        <label className="grid gap-1.5">
+                          <span className="text-xs font-semibold text-slate-600">Reason (the freelancer sees this)</span>
+                          <input name="note" required maxLength={500} className={inputClass} placeholder="e.g. Covered by the original estimate" />
+                        </label>
+                      </ActionForm>
+                    </div>
+                  </details>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       {queue.length === 0 ? (
-        <p className="mt-8 rounded-2xl border border-dashed border-slate-300 bg-white px-6 py-12 text-center text-slate-500">
-          Nothing waiting. Freelancer hours appear here as they&apos;re logged.
-        </p>
+        changes.length === 0 && (
+          <p className="mt-8 rounded-2xl border border-dashed border-slate-300 bg-white px-6 py-12 text-center text-slate-500">
+            Nothing waiting. Freelancer hours and extra-hour requests appear here.
+          </p>
+        )
       ) : (
         <>
-          <p className="mt-6 max-w-3xl text-sm leading-6 text-slate-600">
+          <h2 className="mt-10 text-lg font-bold tracking-tight text-slate-950">Hours logged</h2>
+          <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">
             Approving sends the hours to the client: they get one email from your support address and approve them in the
             portal. Approved hours count against the client&apos;s prepaid balance straight away.
           </p>
