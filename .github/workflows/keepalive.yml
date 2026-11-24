@@ -1,0 +1,19 @@
+# Keeps the free Supabase project awake. Supabase pauses free projects after a
+# week with no activity; this calls the site once a day, which runs one tiny
+# database query. Runs on GitHub's free scheduled jobs.
+name: Keep client portal awake
+
+on:
+  schedule:
+    - cron: "17 3 * * *" # every day at 03:17 UTC
+  workflow_dispatch: {}
+
+permissions: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Ping the portal
+        run: curl --fail --silent --show-error --retry 3 --retry-delay 20 https://www.erpvers.com/api/keepalive
