@@ -121,7 +121,7 @@ export async function sendInviteEmail(input: {
     supportEmail: process.env.MAIL_REPLY_TO ?? process.env.SMTP_USER ?? "support@erpvers.com",
   });
   try {
-    await sendEmail({ to: [input.email], ...email });
+    await sendEmail({ to: [input.email], ...email, mode: "direct" });
     return `We emailed ${input.email} with the link.`;
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);

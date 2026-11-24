@@ -18,6 +18,13 @@ export type OutgoingEmail = {
   subject: string;
   html: string;
   text: string;
+  /**
+   * "bcc" (default): addressed to the support mailbox, recipients in BCC, so a group
+   * of people each see only their own address.
+   * "direct": addressed straight to the recipients, with a copy BCC'd to the support
+   * mailbox for the record. Use for one-person emails such as invites.
+   */
+  mode?: "bcc" | "direct";
 };
 
 export async function sendEmail(email: OutgoingEmail) {
@@ -33,12 +40,14 @@ export async function sendEmail(email: OutgoingEmail) {
   });
 
   const from = process.env.MAIL_FROM ?? `ERP VERS <${process.env.SMTP_USER}>`;
+  const addressing =
+    email.mode === "direct"
+      ? { to: email.to, bcc: from } // The recipient sees their own address; support keeps a copy.
+      : { to: from, bcc: email.to }; // Each recipient sees only their own address.
   await transport.sendMail({
     from,
     replyTo: process.env.MAIL_REPLY_TO ?? from,
-    // Each recipient sees only their own address.
-    to: from,
-    bcc: email.to,
+    ...addressing,
     subject: email.subject,
     html: email.html,
     text: email.text,
