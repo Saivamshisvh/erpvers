@@ -16,7 +16,9 @@ import {
   deleteEntryAction,
   deletePurchaseAction,
   deleteTaskAction,
+  markBudgetAgreedAction,
   markChangeApprovedAction,
+  sendBudgetAction,
   sendChangesToClientAction,
   sendHoursToClientAction,
   setClientRatesAction,
@@ -53,7 +55,7 @@ function AssigneeChecks({
   selected = [],
 }: {
   freelancers: FreelancerOption[];
-  selected?: { user_id: string; hourly_rate_inr: number | null }[];
+  selected?: { user_id: string; hourly_rate_inr: number | null; allocated_hours: number }[];
 }) {
   if (freelancers.length === 0) {
     return (
@@ -64,7 +66,7 @@ function AssigneeChecks({
   }
   return (
     <fieldset className="grid gap-2">
-      <legend className="mb-1.5 text-sm font-semibold text-slate-700">Assign to, with their rate for this task</legend>
+      <legend className="mb-1.5 text-sm font-semibold text-slate-700">Assign to, with their hours and rate for this task</legend>
       <div className="grid gap-2">
         {freelancers.map((f) => {
           const current = selected.find((a) => a.user_id === f.user_id);
@@ -76,6 +78,10 @@ function AssigneeChecks({
                 {f.full_name}
               </label>
               <label className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500">
+                Hours
+                <input name={`hours_${f.user_id}`} type="number" min="0" step="0.25" defaultValue={current ? current.allocated_hours : ""} placeholder="0" className={`${inputClass} w-24 py-1`} />
+              </label>
+              <label className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500">
                 ₹/h
                 <input name={`rate_${f.user_id}`} type="number" min="0" step="1" defaultValue={rate ?? ""} placeholder="Rate" className={`${inputClass} w-24 py-1`} />
               </label>
@@ -83,7 +89,10 @@ function AssigneeChecks({
           );
         })}
       </div>
-      <p className="text-xs text-slate-500">The freelancer sees only their own rate. Clients never see it.</p>
+      <p className="text-xs text-slate-500">
+        Each freelancer can log only the hours you give them. Hours you don&apos;t give out stay with you as your reserve. A
+        freelancer sees only their own hours and rate; clients see neither.
+      </p>
     </fieldset>
   );
 }
@@ -95,10 +104,34 @@ function TaskAdmin({ task, clientId, freelancers }: { task: Task; clientId: stri
       <input type="hidden" name="taskId" value={task.id} />
     </>
   );
+  const locked = task.budget_status === "approved";
   return (
     <div className="grid gap-3">
+      {task.budget_status !== "approved" && (
+        <div className="flex flex-wrap items-center gap-3 rounded-xl border border-amber-200 bg-amber-50/60 px-4 py-3">
+          <p className="min-w-0 flex-1 text-sm text-amber-950">
+            {task.budget_status === "draft"
+              ? "Draft: the client can't see this estimate yet, and freelancers can't log hours."
+              : "Sent to the client. Freelancers can log hours once they approve."}
+          </p>
+          {task.budget_status === "draft" && (
+            <ActionForm action={sendBudgetAction} variant="compact" submitLabel="Send estimate to client" pendingLabel="Sending…">
+              {hidden}
+            </ActionForm>
+          )}
+          <ActionForm
+            action={markBudgetAgreedAction}
+            variant="subtle"
+            submitLabel="Client agreed on a call"
+            pendingLabel="Saving…"
+            confirmMessage={`Record that the client agreed to ${formatHours(task.totalEstimate)} hours for "${task.title}"? No email is sent.`}
+          >
+            {hidden}
+          </ActionForm>
+        </div>
+      )}
       <details className="group rounded-xl border border-slate-200 open:bg-slate-50/60">
-        <summary className="cursor-pointer px-4 py-2.5 text-sm font-semibold text-slate-700">Add change request</summary>
+        <summary className="cursor-pointer px-4 py-2.5 text-sm font-semibold text-slate-700">Add change request (more hours from the client)</summary>
         <div className="px-4 pb-4">
           <ActionForm action={addChangeRequestAction} submitLabel="Add change request" pendingLabel="Adding…">
             {hidden}
@@ -128,13 +161,23 @@ function TaskAdmin({ task, clientId, freelancers }: { task: Task; clientId: stri
       </details>
 
       <details className="group rounded-xl border border-slate-200 open:bg-slate-50/60">
-        <summary className="cursor-pointer px-4 py-2.5 text-sm font-semibold text-slate-700">Edit task, estimate or assignees</summary>
+        <summary className="cursor-pointer px-4 py-2.5 text-sm font-semibold text-slate-700">Edit task, freelancers and their hours</summary>
         <div className="grid gap-5 px-4 pb-4">
           <ActionForm action={updateTaskAction} submitLabel="Save task" resetOnSuccess={false}>
             {hidden}
             <div className="grid gap-4 sm:grid-cols-[1fr_7rem_8rem]">
               <Field label="Title" name="title" required maxLength={160} defaultValue={task.title} />
-              <Field label="Estimate (h)" name="estimateHours" type="number" required min="0" step="0.25" defaultValue={task.estimate_hours} />
+              <Field
+                label="Estimate (h)"
+                name="estimateHours"
+                type="number"
+                required
+                min="0"
+                step="0.25"
+                defaultValue={task.estimate_hours}
+                readOnly={locked}
+                hint={locked ? "Approved by the client. Use a change request for more." : undefined}
+              />
               <label className="grid gap-1.5">
                 <span className="text-sm font-semibold text-slate-700">Status</span>
                 <select name="status" defaultValue={task.status} className={inputClass}>
@@ -216,6 +259,7 @@ export default async function AdminClientPage({ params }: { params: Promise<{ id
   const activeFreelancers = freelancers.filter((f) => f.active);
   const waiting = queue.filter((e) => e.client_id === client.id);
   const ready = readyAll.filter((e) => e.client_id === client.id);
+  const drafts = tasks.filter((t) => t.budget_status === "draft");
   const readyHours = ready.reduce((s, e) => s + e.hours, 0);
   const hidden = <input type="hidden" name="clientId" value={client.id} />;
   const tiers = [...PREPAID_TIERS].reverse().map((t) => `${t.label}: ${t.discountPct}%`).join(" · ");
@@ -233,6 +277,18 @@ export default async function AdminClientPage({ params }: { params: Promise<{ id
           </Link>
         )}
       </div>
+
+      {drafts.length > 1 && (
+        <div className="mt-5 flex flex-col gap-3 rounded-2xl border border-amber-200 bg-amber-50/60 p-4 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm text-amber-950">
+            <span className="font-semibold">{drafts.length} draft estimates</span> ({formatHours(drafts.reduce((s, t) => s + t.totalEstimate, 0))} h) not sent
+            to {client.name} yet.
+          </p>
+          <ActionForm action={sendBudgetAction} submitLabel="Send all to client in one email" pendingLabel="Sending…">
+            {hidden}
+          </ActionForm>
+        </div>
+      )}
 
       {ready.length > 0 && (
         <div className="mt-5 flex flex-col gap-3 rounded-2xl border border-emerald-200 bg-emerald-50/60 p-4 sm:flex-row sm:items-center sm:justify-between">
@@ -255,7 +311,8 @@ export default async function AdminClientPage({ params }: { params: Promise<{ id
       <section className="mt-8" aria-labelledby="tasks-heading">
         <h2 id="tasks-heading" className="text-xl font-bold tracking-tight text-slate-950">Tasks</h2>
         <p className="mt-1 text-sm text-slate-600">
-          Freelancers can only log hours on tasks assigned to them, up to the estimate plus change requests the client has approved. Only you can change estimates.
+          The client approves each task&apos;s estimate. You decide how many of those hours each freelancer gets; the rest is your reserve.
+          Freelancers can only log the hours you give them.
         </p>
         <div className="mt-5 grid gap-5 lg:grid-cols-2 [&>*]:min-w-0">
           {tasks.map((task) => (
@@ -263,15 +320,30 @@ export default async function AdminClientPage({ params }: { params: Promise<{ id
               <TaskAdmin task={task} clientId={client.id} freelancers={activeFreelancers} />
             </TaskCard>
           ))}
-          <Panel title="New task" description="One requirement from the client, with your hour estimate.">
+          <Panel title="New task" description="One requirement from the client, with your hour estimate. Freelancers can log hours once the client approves it.">
             <ActionForm action={createTaskAction} submitLabel="Create task" pendingLabel="Creating…">
               {hidden}
               <div className="grid gap-4 sm:grid-cols-[1fr_7rem]">
                 <Field label="Title" name="title" required maxLength={160} placeholder="e.g. Supplier portal login" />
                 <Field label="Estimate (h)" name="estimateHours" type="number" required min="0" step="0.25" placeholder="40" />
               </div>
-              <TextArea label="Description (optional)" name="description" maxLength={2000} rows={2} />
+              <TextArea label="Description (optional, the client sees this)" name="description" maxLength={2000} rows={2} />
               <AssigneeChecks freelancers={activeFreelancers} />
+              <fieldset className="grid gap-1.5 text-sm text-slate-600">
+                <legend className="mb-1 text-sm font-semibold text-slate-700">Estimate</legend>
+                <label className="flex items-start gap-2">
+                  <input type="radio" name="budget" value="draft" defaultChecked className="mt-1 accent-blue-600" />
+                  Save as a draft, and send it to the client later
+                </label>
+                <label className="flex items-start gap-2">
+                  <input type="radio" name="budget" value="send" className="mt-1 accent-blue-600" />
+                  Send the estimate to the client now for their approval
+                </label>
+                <label className="flex items-start gap-2">
+                  <input type="radio" name="budget" value="agreed" className="mt-1 accent-blue-600" />
+                  The client already agreed on a call (approve it now, no email)
+                </label>
+              </fieldset>
             </ActionForm>
           </Panel>
         </div>
@@ -280,7 +352,7 @@ export default async function AdminClientPage({ params }: { params: Promise<{ id
       <MoneyPanel clientId={client.id} money={money} />
 
       <div className="mt-10 grid gap-6 lg:grid-cols-2 [&>*]:min-w-0">
-        <Panel title="Log hours yourself" description="Hours you log count as approved by you. Send them to the client now, or later with the rest.">
+        <Panel title="Log hours yourself" description="Hours you log go straight into the client's work log.">
           <ActionForm action={addEntryAction} submitLabel="Log hours" pendingLabel="Logging…">
             {hidden}
             <div className="grid gap-4 sm:grid-cols-[1fr_1fr_7rem]">
@@ -302,10 +374,6 @@ export default async function AdminClientPage({ params }: { params: Promise<{ id
               </label>
             )}
             <TextArea label="Work done" name="description" required maxLength={1000} rows={3} placeholder="What was done, in words the client will understand" />
-            <label className="flex items-start gap-2 text-sm text-slate-600">
-              <input type="checkbox" name="sendNow" value="yes" className="mt-1 accent-blue-600" />
-              Send to the client now (they get an email)
-            </label>
           </ActionForm>
         </Panel>
 
@@ -439,11 +507,12 @@ function MoneyPanel({ clientId, money }: { clientId: string; money: ClientMoney 
   const cur = rates.currency;
   const inr = (n: number | null) => (n == null ? "-" : formatMoney(n, "INR"));
   const needsFx = cur !== "INR" && rates.inr_per_unit == null;
+  const byBudget = rates.billing_basis === "budget";
   return (
     <section className="mt-10 rounded-2xl border border-slate-200 bg-white" aria-labelledby="money-heading">
       <div className="border-b border-slate-100 px-5 py-4 sm:px-7">
         <h2 id="money-heading" className="text-base font-bold tracking-tight text-slate-950">Rates and profit</h2>
-        <p className="mt-1 text-sm text-slate-500">Only you see this. Clients never see freelancer rates or your margin; freelancers never see the client&apos;s rate.</p>
+        <p className="mt-1 text-sm text-slate-500">Only you see this. Clients never see freelancer rates or your profit; freelancers never see the client&apos;s rate.</p>
       </div>
       <div className="grid gap-6 px-5 py-5 sm:px-7 lg:grid-cols-[18rem_1fr] [&>*]:min-w-0">
         <ActionForm action={setClientRatesAction} submitLabel="Save rates" resetOnSuccess={false}>
@@ -456,7 +525,7 @@ function MoneyPanel({ clientId, money }: { clientId: string; money: ClientMoney 
               ))}
             </select>
           </label>
-          <Field label="Hourly rate (before discount)" name="hourlyRate" type="number" min="0" step="0.01" defaultValue={rates.hourly_rate ?? ""} placeholder="e.g. 40" />
+          <Field label="Hourly rate (before discount)" name="hourlyRate" type="number" min="0" step="0.01" defaultValue={rates.hourly_rate ?? ""} placeholder="e.g. 1000" />
           <Field
             label="1 unit of client currency = ? INR"
             name="inrPerUnit"
@@ -464,42 +533,89 @@ function MoneyPanel({ clientId, money }: { clientId: string; money: ClientMoney 
             min="0"
             step="0.0001"
             defaultValue={rates.inr_per_unit ?? ""}
-            placeholder="e.g. 84"
-            hint="Used to show your margin in INR. Ignored for INR clients."
+            placeholder="e.g. 2.6"
+            hint="Used to show your profit in INR. Ignored for INR clients."
           />
+          <Field label="TDS deducted (%)" name="tdsPct" type="number" min="0" max="100" step="0.01" defaultValue={rates.tds_pct} hint="For example 10. Use 0 if no TDS is deducted." />
+          <label className="grid gap-1.5">
+            <span className="text-sm font-semibold text-slate-700">The client pays for</span>
+            <select name="billingBasis" defaultValue={rates.billing_basis} className={inputClass}>
+              <option value="budget">The approved budget (fixed hours per task)</option>
+              <option value="logged">Hours logged (for example, prepaid hours)</option>
+            </select>
+          </label>
         </ActionForm>
 
         <div className="min-w-0">
-          <dl className="grid gap-3 sm:grid-cols-4">
-            <Stat label="Prepaid received" value={money.prepaidAmount == null ? "-" : formatMoney(money.prepaidAmount, cur)} hint={money.netRate == null ? "Set a rate" : `${formatMoney(money.netRate, cur)}/h after discounts`} />
-            <Stat label="Billed so far" value={totals.clientAmount == null ? "-" : formatMoney(totals.clientAmount, cur)} hint={`${formatHours(totals.billedHours)} h sent to the client${totals.clientAmountInr != null && cur !== "INR" ? `, ${inr(totals.clientAmountInr)}` : ""}`} />
-            <Stat label="Freelancer cost" value={inr(totals.freelancerCostInr)} hint={totals.unratedHours > 0 ? `${formatHours(totals.unratedHours)} h without a rate` : "For the same hours"} />
-            <Stat label="Your margin" value={inr(totals.marginInr)} hint={needsFx ? "Add the INR exchange rate" : totals.clientAmountInr ? `${Math.round(((totals.marginInr ?? 0) / totals.clientAmountInr) * 100)}% of billed` : ""} strong />
+          <dl className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <Stat
+              label={byBudget ? "Client pays (approved budget)" : "Client pays (hours logged)"}
+              value={totals.clientAmount == null ? "-" : formatMoney(totals.clientAmount, cur)}
+              hint={
+                money.netRate == null
+                  ? "Set a rate"
+                  : `${formatHours(totals.billedHours)} h at ${formatMoney(money.netRate, cur)}/h${totals.clientAmountInr != null && cur !== "INR" ? `, ${inr(totals.clientAmountInr)}` : ""}`
+              }
+            />
+            <Stat label={`TDS (${formatHours(rates.tds_pct)}%)`} value={inr(totals.tdsInr)} hint="Deducted before you're paid" />
+            <Stat
+              label="Freelancer cost"
+              value={inr(totals.freelancerCostInr)}
+              hint={totals.unratedHours > 0 ? `${formatHours(totals.unratedHours)} h without a rate` : `${formatHours(totals.freelancerHours)} h approved`}
+            />
+            <Stat
+              label="Your profit so far"
+              value={inr(totals.profitInr)}
+              hint={needsFx ? "Add the INR exchange rate" : totals.clientAmountInr ? `${Math.round(((totals.profitInr ?? 0) / totals.clientAmountInr) * 100)}% of what the client pays` : ""}
+              strong
+            />
+          </dl>
+          <dl className="mt-3 grid gap-3 sm:grid-cols-3">
+            <Stat label="Budget given to freelancers" value={`${formatHours(totals.allocatedHours)} h`} hint={`of ${formatHours(totals.budgetHours)} h in all tasks`} />
+            <Stat label="Your reserve" value={`${formatHours(totals.reserveHours)} h`} hint="Budget hours you haven't given out" />
+            <Stat label="Expected profit when finished" value={inr(totals.expectedProfitInr)} hint="Whole budget paid, freelancers use all their hours" strong />
           </dl>
 
           {money.tasks.length > 0 && (
             <div className="relative mt-5 overflow-x-auto">
-              <table className="w-full min-w-[640px] text-left text-sm">
+              <table className="w-full min-w-[860px] text-left text-sm">
                 <thead className="text-xs font-semibold uppercase tracking-wider text-slate-500">
                   <tr>
                     <th scope="col" className="py-2 pr-3">Task</th>
-                    <th scope="col" className="px-3 py-2 text-right">Hours billed</th>
-                    <th scope="col" className="px-3 py-2 text-right">Client amount</th>
+                    <th scope="col" className="px-3 py-2 text-right">Budget</th>
+                    <th scope="col" className="px-3 py-2 text-right">Given out</th>
+                    <th scope="col" className="px-3 py-2 text-right">Reserve</th>
+                    <th scope="col" className="px-3 py-2 text-right">Client pays</th>
+                    <th scope="col" className="px-3 py-2 text-right">TDS</th>
                     <th scope="col" className="px-3 py-2 text-right">Freelancer cost</th>
-                    <th scope="col" className="py-2 pl-3 text-right">Margin</th>
+                    <th scope="col" className="px-3 py-2 text-right">Profit so far</th>
+                    <th scope="col" className="py-2 pl-3 text-right">Expected</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {money.tasks.map((t) => (
                     <tr key={t.task_id}>
-                      <td className="py-2.5 pr-3 font-medium text-slate-900">{t.title}</td>
-                      <td className="px-3 py-2.5 text-right tabular-nums text-slate-700">{formatHours(t.billedHours)}</td>
-                      <td className="px-3 py-2.5 text-right tabular-nums text-slate-700">{t.clientAmount == null ? "-" : formatMoney(t.clientAmount, cur)}</td>
+                      <td className="py-2.5 pr-3 font-medium text-slate-900">
+                        {t.title}
+                        {t.budgetStatus && t.budgetStatus !== "approved" && (
+                          <span className="block text-xs font-normal text-amber-700">{t.budgetStatus === "draft" ? "Draft estimate" : "Waiting for the client"}</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2.5 text-right tabular-nums text-slate-700">{formatHours(t.budgetHours)}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums text-slate-700">{formatHours(t.allocatedHours)}</td>
+                      <td className={`px-3 py-2.5 text-right tabular-nums ${t.reserveHours < 0 ? "text-red-600" : "text-slate-700"}`}>{formatHours(t.reserveHours)}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums text-slate-700">
+                        {t.clientAmount == null ? "-" : formatMoney(t.clientAmount, cur)}
+                        <span className="block text-xs text-slate-500">{formatHours(t.billedHours)} h</span>
+                      </td>
+                      <td className="px-3 py-2.5 text-right tabular-nums text-slate-700">{inr(t.tdsInr)}</td>
                       <td className="px-3 py-2.5 text-right tabular-nums text-slate-700">
                         {inr(t.freelancerCostInr)}
+                        <span className="block text-xs text-slate-500">{formatHours(t.freelancerHours)} h</span>
                         {t.unratedHours > 0 && <span className="block text-xs text-amber-700">{formatHours(t.unratedHours)} h no rate</span>}
                       </td>
-                      <td className={`py-2.5 pl-3 text-right font-semibold tabular-nums ${t.marginInr != null && t.marginInr < 0 ? "text-red-600" : "text-slate-950"}`}>{inr(t.marginInr)}</td>
+                      <td className={`px-3 py-2.5 text-right font-semibold tabular-nums ${t.profitInr != null && t.profitInr < 0 ? "text-red-600" : "text-slate-950"}`}>{inr(t.profitInr)}</td>
+                      <td className="py-2.5 pl-3 text-right tabular-nums text-emerald-800">{inr(t.expectedProfitInr)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -507,9 +623,13 @@ function MoneyPanel({ clientId, money }: { clientId: string; money: ClientMoney 
             </div>
           )}
           <p className="mt-3 text-xs leading-5 text-slate-500">
-            Billed hours are hours sent to the client (waiting for approval or approved). Client amount uses the average rate the client
-            paid across purchases, after discounts. Freelancer cost uses each freelancer&apos;s current rate on the task; hours you log yourself
-            have no freelancer cost.
+            {byBudget
+              ? "The client pays for each task's approved budget, whatever the freelancers use. "
+              : "The client pays for hours you approve. "}
+            Profit = what the client pays, minus TDS, minus freelancer cost. Client rate is the average the client paid across prepaid
+            purchases after discounts, or the hourly rate if there are none. Freelancer cost is approved hours at each freelancer&apos;s
+            rate on the task; hours you log yourself cost nothing. Expected profit assumes the whole budget is paid and each freelancer
+            uses all the hours you gave them.
           </p>
         </div>
       </div>

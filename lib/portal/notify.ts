@@ -178,7 +178,48 @@ export async function notifyClientChangeRequests(clientId: string, { reminder = 
 }
 
 /** Tells ERP VERS (the support mailbox) that a freelancer asked for extra hours. Best effort. */
-export async function notifyAdminOfChangeRequest(input: { freelancer: string; taskTitle: string; clientName: string; title: string; hours: number; reason: string }) {
+/** Email the client about task estimates waiting for their approval. Returns a message for the admin. */
+export async function notifyClientBudgets(clientId: string, { reminder = false } = {}): Promise<string> {
+  const supabase = await createClient();
+  const [clientRes, membersRes, tasksRes] = await Promise.all([
+    supabase.from("clients").select("name").eq("id", clientId).single(),
+    supabase.from("client_members").select("email").eq("client_id", clientId),
+    supabase
+      .from("tasks")
+      .select("id, title, description, estimate_hours, budget_notified_at")
+      .eq("client_id", clientId)
+      .eq("budget_status", "pending_client")
+      .order("created_at"),
+  ]);
+  for (const r of [clientRes, membersRes, tasksRes]) if (r.error) return `The client email couldn't be prepared (${r.error.message}).`;
+
+  type Row = { id: string; title: string; description: string | null; estimate_hours: number; budget_notified_at: string | null };
+  const waiting = (tasksRes.data ?? []) as Row[];
+  const toSend = reminder ? waiting : waiting.filter((t) => !t.budget_notified_at);
+  if (toSend.length === 0) return reminder ? "No estimate is waiting for the client's approval." : "";
+  if (!isEmailConfigured()) return "Email isn't set up yet, so the client wasn't emailed. They'll see it when they sign in.";
+  const recipients = [...new Set((membersRes.data ?? []).map((m) => m.email.toLowerCase()))];
+  if (recipients.length === 0) return "Nobody at this client has portal access yet, so no email went out. They'll see it when they sign in.";
+
+  const email = buildChangeRequestEmail({
+    kind: "estimate",
+    clientName: clientRes.data!.name,
+    items: toSend.map((t) => ({ task_title: t.title, title: t.title, description: t.description, hours: Number(t.estimate_hours) })),
+    portalUrl: await portalUrl(),
+    supportEmail: supportAddress(),
+    isReminder: reminder,
+  });
+  try {
+    await sendEmail({ to: recipients, ...email });
+  } catch (error) {
+    return `The client email couldn't be sent (${error instanceof Error ? error.message : String(error)}). Use "Email client" to try again.`;
+  }
+  const ids = toSend.filter((t) => !t.budget_notified_at).map((t) => t.id);
+  if (ids.length) await supabase.from("tasks").update({ budget_notified_at: new Date().toISOString() }).in("id", ids);
+  return `Emailed ${recipients.length} ${recipients.length === 1 ? "person" : "people"} at the client to approve.`;
+}
+
+export async function notifyAdminOfChangeRequest(input: { freelancer: string; taskTitle: string; clientName: string; title?: string; hours: number; reason: string }) {
   if (!isEmailConfigured()) return;
   const base = (await portalUrl()).replace(/\/$/, "");
   const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -187,7 +228,7 @@ export async function notifyAdminOfChangeRequest(input: { freelancer: string; ta
     `${input.freelancer} asked for ${input.hours} extra hours.`,
     `Client: ${input.clientName}`,
     `Task: ${input.taskTitle}`,
-    `Change: ${input.title}`,
+    input.title ? `Change: ${input.title}` : "",
     input.reason ? `Reason: ${input.reason}` : "",
     "",
     `Review it: ${base}/admin/review`,

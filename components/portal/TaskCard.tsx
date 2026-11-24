@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import type { ChangeRequestStatus, Task } from "@/lib/portal/data";
+import type { BudgetStatus, ChangeRequestStatus, Task } from "@/lib/portal/data";
 import { formatDate, formatHours } from "@/lib/portal/format";
 
 type TaskCardProps = {
@@ -7,11 +7,13 @@ type TaskCardProps = {
   /** Show hours still waiting for review (admins and freelancers only, never clients). */
   showPending?: boolean;
   showAssignees?: boolean;
+  /** Freelancers see their own hours instead of the client's budget. */
+  hideBudget?: boolean;
   eyebrow?: string;
   children?: ReactNode;
 };
 
-export default function TaskCard({ task, showPending = false, showAssignees = false, eyebrow, children }: TaskCardProps) {
+export default function TaskCard({ task, showPending = false, showAssignees = false, hideBudget = false, eyebrow, children }: TaskCardProps) {
   const pending = showPending ? task.pendingHours : 0;
   const used = task.reviewedHours + pending;
   const remaining = Math.max(task.totalEstimate - used, 0);
@@ -26,19 +28,27 @@ export default function TaskCard({ task, showPending = false, showAssignees = fa
           {eyebrow && <p className="text-xs font-bold uppercase tracking-[0.14em] text-blue-600">{eyebrow}</p>}
           <h3 className="mt-1 text-lg font-bold tracking-tight text-slate-950">{task.title}</h3>
         </div>
-        <span
-          className={`rounded-full px-2.5 py-1 text-xs font-bold ${
-            task.status === "done" ? "bg-slate-100 text-slate-600" : "bg-blue-50 text-blue-700"
-          }`}
-        >
-          {task.status === "done" ? "Done" : "In progress"}
-        </span>
+        {task.budget_status === "approved" ? (
+          <span
+            className={`rounded-full px-2.5 py-1 text-xs font-bold ${
+              task.status === "done" ? "bg-slate-100 text-slate-600" : "bg-blue-50 text-blue-700"
+            }`}
+          >
+            {task.status === "done" ? "Done" : "In progress"}
+          </span>
+        ) : (
+          <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${BUDGET_STATUS[task.budget_status].className}`}>
+            {BUDGET_STATUS[task.budget_status].label}
+          </span>
+        )}
       </div>
       {task.description && <p className="mt-2 whitespace-pre-line text-sm leading-6 text-slate-600">{task.description}</p>}
 
+      {!hideBudget && (
+      <>
       <dl className="mt-5 grid grid-cols-3 gap-3 text-sm">
         <div>
-          <dt className="text-xs font-semibold text-slate-500">Estimate</dt>
+          <dt className="text-xs font-semibold text-slate-500">{task.budget_status === "approved" ? "Approved budget" : "Estimate"}</dt>
           <dd className="mt-0.5 text-lg font-bold tabular-nums text-slate-950">{formatHours(task.totalEstimate)} h</dd>
           {crHours > 0 && (
             <dd className="text-xs text-slate-500">
@@ -100,11 +110,19 @@ export default function TaskCard({ task, showPending = false, showAssignees = fa
           </ul>
         </div>
       )}
+      </>
+      )}
 
       {showAssignees && (
         <p className="mt-4 text-sm text-slate-600">
           <span className="font-semibold text-slate-700">Assigned: </span>
-          {task.assignees.length ? task.assignees.map((a) => a.full_name).join(", ") : "Nobody yet"}
+          {task.assignees.length ? task.assignees.map((a) => `${a.full_name} (${formatHours(a.allocated_hours)} h)`).join(", ") : "Nobody yet"}
+          <span className="block text-xs text-slate-500">
+            Given out {formatHours(task.allocatedHours)} of {formatHours(task.totalEstimate)} h · your reserve{" "}
+            <span className={task.totalEstimate - task.allocatedHours < 0 ? "font-semibold text-red-600" : "font-semibold text-slate-700"}>
+              {formatHours(task.totalEstimate - task.allocatedHours)} h
+            </span>
+          </span>
         </p>
       )}
 
@@ -112,6 +130,12 @@ export default function TaskCard({ task, showPending = false, showAssignees = fa
     </article>
   );
 }
+
+const BUDGET_STATUS: Record<BudgetStatus, { label: string; className: string }> = {
+  draft: { label: "Draft", className: "bg-slate-100 text-slate-600" },
+  pending_client: { label: "Estimate waiting for approval", className: "bg-amber-50 text-amber-800" },
+  approved: { label: "Approved", className: "bg-emerald-50 text-emerald-700" },
+};
 
 const CHANGE_STATUS: Record<ChangeRequestStatus, { label: string; className: string }> = {
   requested: { label: "Waiting for ERP VERS", className: "bg-amber-50 text-amber-800" },

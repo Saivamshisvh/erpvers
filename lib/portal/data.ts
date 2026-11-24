@@ -45,6 +45,8 @@ export type ChangeRequest = {
   review_note: string | null;
   client_notified_at: string | null;
 };
+/** draft: being prepared (clients can't see it). pending_client: sent for approval. approved: the client agreed. */
+export type BudgetStatus = "draft" | "pending_client" | "approved";
 export type Task = {
   id: string;
   client_id: string;
@@ -52,6 +54,8 @@ export type Task = {
   description: string | null;
   estimate_hours: number;
   status: "open" | "done";
+  budget_status: BudgetStatus;
+  budget_notified_at: string | null;
   created_at: string;
   changeRequests: ChangeRequest[];
   totalEstimate: number;
@@ -61,15 +65,28 @@ export type Task = {
   pendingHours: number;
   /** Extra hours asked for but not approved by the client yet. Clients see only what was sent to them. */
   waitingChangeHours: number;
-  /** Admins see everyone with their rate; a freelancer sees only themselves; clients see nobody. */
-  assignees: { user_id: string; full_name: string; hourly_rate_inr: number | null }[];
+  /** Admins see everyone with their rate and hours; a freelancer sees only themselves; clients see nobody. */
+  assignees: { user_id: string; full_name: string; hourly_rate_inr: number | null; allocated_hours: number }[];
+  /** Hours handed out to freelancers (admin view: everyone; freelancer view: their own). */
+  allocatedHours: number;
 };
 export type MonthUsage = { month: string; hours: number };
-export type ClientRates = { currency: string; hourly_rate: number | null; inr_per_unit: number | null };
+export type BillingBasis = "logged" | "budget";
+export type ClientRates = {
+  currency: string;
+  hourly_rate: number | null;
+  inr_per_unit: number | null;
+  /** Tax deducted at source, as a percentage of what the client pays. */
+  tds_pct: number;
+  /** budget: the client pays for the approved budget. logged: for hours logged. */
+  billing_basis: BillingBasis;
+};
 
 export type DashboardData = {
   client: Client;
   purchases: Purchase[];
+  /** Hour budgets across tasks: approved by the client, waiting for them, and used. */
+  budget: { approved: number; waiting: number; used: number; remaining: number; tasks: number };
   /** Entries sent to the client (awaiting their approval, or approved). These count against the balance. */
   entries: TimeEntry[];
   /** The subset still waiting for the client to approve. */
@@ -208,9 +225,9 @@ export async function getTasks(clientId?: string): Promise<Task[]> {
   let taskQuery = supabase
     .from("tasks")
     .select(
-      "id, client_id, title, description, estimate_hours, status, created_at, " +
+      "id, client_id, title, description, estimate_hours, status, budget_status, budget_notified_at, created_at, " +
         "change_requests(id, task_id, title, description, hours, requested_on, status, requested_by_name, review_note, client_notified_at), " +
-        "task_assignments(user_id, hourly_rate_inr, freelancers(full_name))",
+        "task_assignments(user_id, hourly_rate_inr, allocated_hours, freelancers(full_name))",
     )
     .order("status")
     .order("created_at");
@@ -227,13 +244,20 @@ export async function getTasks(clientId?: string): Promise<Task[]> {
   );
 
   type Row = {
-    id: string; client_id: string; title: string; description: string | null; estimate_hours: number; status: "open" | "done"; created_at: string;
+    id: string; client_id: string; title: string; description: string | null; estimate_hours: number; status: "open" | "done";
+    budget_status: BudgetStatus; budget_notified_at: string | null; created_at: string;
     change_requests: ChangeRequest[] | null;
-    task_assignments: { user_id: string; hourly_rate_inr: number | null; freelancers: { full_name: string } | null }[] | null;
+    task_assignments: { user_id: string; hourly_rate_inr: number | null; allocated_hours: number; freelancers: { full_name: string } | null }[] | null;
   };
 
   return ((tasksRes.data ?? []) as unknown as Row[]).map((t) => {
     const u = usage.get(t.id);
+    const assignees = (t.task_assignments ?? []).map((a) => ({
+      user_id: a.user_id,
+      full_name: a.freelancers?.full_name ?? "Freelancer",
+      hourly_rate_inr: a.hourly_rate_inr == null ? null : Number(a.hourly_rate_inr),
+      allocated_hours: Number(a.allocated_hours ?? 0),
+    }));
     return {
       id: t.id,
       client_id: t.client_id,
@@ -241,6 +265,8 @@ export async function getTasks(clientId?: string): Promise<Task[]> {
       description: t.description,
       estimate_hours: Number(t.estimate_hours),
       status: t.status,
+      budget_status: t.budget_status,
+      budget_notified_at: t.budget_notified_at,
       created_at: t.created_at,
       changeRequests: (t.change_requests ?? [])
         .map((c) => ({ ...c, hours: Number(c.hours) }))
@@ -249,11 +275,8 @@ export async function getTasks(clientId?: string): Promise<Task[]> {
       reviewedHours: Number(u?.reviewed_hours ?? 0),
       pendingHours: Number(u?.pending_hours ?? 0),
       waitingChangeHours: Number(u?.waiting_change_hours ?? 0),
-      assignees: (t.task_assignments ?? []).map((a) => ({
-        user_id: a.user_id,
-        full_name: a.freelancers?.full_name ?? "Freelancer",
-        hourly_rate_inr: a.hourly_rate_inr == null ? null : Number(a.hourly_rate_inr),
-      })),
+      assignees,
+      allocatedHours: round(assignees.reduce((s, a) => s + a.allocated_hours, 0)),
     };
   });
 }
@@ -295,10 +318,20 @@ export async function getDashboardData(clientId: string): Promise<DashboardData 
   const used = round(entries.reduce((sum, e) => sum + e.hours, 0));
   const remaining = round(purchased - used);
   const awaiting = entries.filter((e) => e.status === "awaiting_client");
+  const approvedTasks = tasks.filter((t) => t.budget_status === "approved");
+  const approvedBudget = round(approvedTasks.reduce((s, t) => s + t.totalEstimate, 0));
+  const budgetUsed = round(approvedTasks.reduce((s, t) => s + t.reviewedHours, 0));
 
   return {
     client,
     purchases,
+    budget: {
+      approved: approvedBudget,
+      waiting: round(tasks.filter((t) => t.budget_status === "pending_client").reduce((s, t) => s + t.totalEstimate, 0)),
+      used: budgetUsed,
+      remaining: round(approvedBudget - budgetUsed),
+      tasks: approvedTasks.length,
+    },
     entries,
     awaiting,
     members,
@@ -338,6 +371,9 @@ export function monthlyUsage(entries: Pick<TimeEntry, "work_date" | "hours">[], 
 
 export type FreelancerTask = Task & {
   client_name: string;
+  /** Hours ERP VERS gave this freelancer on the task, and how many they have left. */
+  myAllocatedHours: number;
+  myRemainingHours: number;
   /** The freelancer's own rate on this task, in INR per hour. */
   rateInr: number | null;
   /** Their hours ERP VERS has accepted (sent to the client or approved). */
@@ -374,9 +410,12 @@ export async function getFreelancerWork() {
     const mine = entries.filter((e) => e.task_id === t.id && e.status !== "rejected");
     const accepted = round(mine.filter((e) => e.status !== "pending").reduce((s, e) => s + e.hours, 0));
     const waiting = round(mine.filter((e) => e.status === "pending").reduce((s, e) => s + e.hours, 0));
+    const allocated = t.assignees.find((a) => a.user_id === user.id)?.allocated_hours ?? 0;
     return {
       ...t,
       client_name: names.get(t.client_id) ?? "Client",
+      myAllocatedHours: allocated,
+      myRemainingHours: round(Math.max(allocated - accepted - waiting, 0)),
       rateInr: rate,
       myAcceptedHours: accepted,
       myWaitingHours: waiting,
@@ -385,8 +424,19 @@ export async function getFreelancerWork() {
     };
   });
   const sumOf = (k: "earnedInr" | "waitingInr") => round(myTasks.reduce((s, t) => s + (t[k] ?? 0), 0));
+  const requestsRes = await supabase
+    .from("hour_requests")
+    .select("id, task_id, hours, reason, status, granted_hours, review_note, created_at")
+    .eq("user_id", user.id)
+    .order("created_at", { ascending: false });
+  if (requestsRes.error) throw requestsRes.error;
   return {
     tasks: myTasks as FreelancerTask[],
+    hourRequests: (requestsRes.data ?? []).map((r) => ({
+      ...r,
+      hours: Number(r.hours),
+      granted_hours: r.granted_hours == null ? null : Number(r.granted_hours),
+    })) as HourRequest[],
     entries,
     earnings: {
       earnedInr: sumOf("earnedInr"),
@@ -395,6 +445,66 @@ export async function getFreelancerWork() {
     },
   };
 }
+
+export type HourRequest = {
+  id: string;
+  task_id: string;
+  hours: number;
+  reason: string;
+  status: "requested" | "granted" | "declined";
+  granted_hours: number | null;
+  review_note: string | null;
+  created_at: string;
+};
+export type HourRequestReview = HourRequest & {
+  user_id: string;
+  freelancer_name: string;
+  task_title: string;
+  client_id: string;
+  client_name: string;
+  /** The freelancer's current hours on the task, and what ERP VERS has not handed out yet. */
+  allocated: number;
+  reserve: number;
+};
+
+/** Freelancers asking ERP VERS for more hours. Admin-only through RLS. */
+export const getHourRequestQueue = cache(async (): Promise<HourRequestReview[]> => {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("hour_requests")
+    .select("id, task_id, user_id, hours, reason, status, granted_hours, review_note, created_at, freelancers(full_name), task:tasks(title, client_id, client:clients(name))")
+    .eq("status", "requested")
+    .order("created_at");
+  if (error) throw error;
+  type Row = HourRequest & {
+    user_id: string;
+    freelancers: { full_name: string } | null;
+    task: { title: string; client_id: string; client: { name: string } | null } | null;
+  };
+  const rows = (data ?? []) as unknown as Row[];
+  if (rows.length === 0) return [];
+  const taskIds = [...new Set(rows.map((r) => r.task_id))];
+  const [tasks, assignments] = await Promise.all([
+    getTasks().then((all) => all.filter((t) => taskIds.includes(t.id))),
+    supabase.from("task_assignments").select("task_id, user_id, allocated_hours").in("task_id", taskIds),
+  ]);
+  if (assignments.error) throw assignments.error;
+  return rows.map(({ freelancers, task, ...r }) => {
+    const t = tasks.find((x) => x.id === r.task_id);
+    const mine = (assignments.data ?? []).find((a) => a.task_id === r.task_id && a.user_id === r.user_id);
+    return {
+      ...r,
+      hours: Number(r.hours),
+      granted_hours: r.granted_hours == null ? null : Number(r.granted_hours),
+      freelancer_name: freelancers?.full_name ?? "Freelancer",
+      task_title: task?.title ?? "Task",
+      client_id: task?.client_id ?? "",
+      client_name: task?.client?.name ?? "Client",
+      allocated: Number(mine?.allocated_hours ?? 0),
+      reserve: t ? round(t.totalEstimate - t.allocatedHours) : 0,
+    };
+  });
+});
 
 // ---------------------------------------------------------------------------
 // Admin
@@ -574,25 +684,44 @@ async function changeRequestsWithStatus(status: ChangeRequestStatus): Promise<Ch
 /** A client's currency, hourly rate and exchange rate. Admin-only through RLS. */
 export async function getClientRates(clientId: string): Promise<ClientRates> {
   const supabase = await createClient();
-  const { data, error } = await supabase.from("client_rates").select("currency, hourly_rate, inr_per_unit").eq("client_id", clientId).maybeSingle();
+  const { data, error } = await supabase
+    .from("client_rates")
+    .select("currency, hourly_rate, inr_per_unit, tds_pct, billing_basis")
+    .eq("client_id", clientId)
+    .maybeSingle();
   if (error) throw error;
   return {
     currency: data?.currency ?? "USD",
     hourly_rate: data?.hourly_rate == null ? null : Number(data.hourly_rate),
     inr_per_unit: data?.inr_per_unit == null ? null : Number(data.inr_per_unit),
+    tds_pct: Number(data?.tds_pct ?? 0),
+    billing_basis: data?.billing_basis === "budget" ? "budget" : "logged",
   };
 }
 
-export type TaskMoney = {
-  task_id: string;
-  title: string;
+export type MoneyRow = {
+  /** Hours the client pays for: the approved budget, or hours logged, depending on the billing basis. */
   billedHours: number;
   clientAmount: number | null;
   clientAmountInr: number | null;
+  tdsInr: number | null;
+  /** Freelancer hours ERP VERS approved, and what they cost at each freelancer's rate on the task. */
+  freelancerHours: number;
   freelancerCostInr: number;
-  /** Hours from entries whose freelancer has no rate on this task, so their cost is unknown. */
+  /** Freelancer hours with no rate on the task, so their cost is unknown. */
   unratedHours: number;
-  marginInr: number | null;
+  profitInr: number | null;
+};
+export type TaskMoney = MoneyRow & {
+  task_id: string;
+  title: string;
+  budgetStatus: BudgetStatus | null;
+  budgetHours: number;
+  allocatedHours: number;
+  /** Budget hours not handed out to freelancers: ERP VERS's reserve. */
+  reserveHours: number;
+  /** Profit once the budget is used: client pays for the budget, freelancers use all their hours. */
+  expectedProfitInr: number | null;
 };
 
 export type ClientMoney = {
@@ -601,12 +730,13 @@ export type ClientMoney = {
   netRate: number | null;
   prepaidAmount: number | null;
   tasks: TaskMoney[];
-  totals: { billedHours: number; clientAmount: number | null; clientAmountInr: number | null; freelancerCostInr: number; unratedHours: number; marginInr: number | null };
+  totals: MoneyRow & { budgetHours: number; allocatedHours: number; reserveHours: number; expectedProfitInr: number | null };
 };
 
 /**
- * What ERP VERS earns on a client: client amount for hours sent to the client, minus what
- * the freelancers who logged those hours are paid. Admin-only (reads rates).
+ * What ERP VERS earns on a client. Revenue is the approved budget or the hours logged (billing basis),
+ * at the client's rate; TDS comes off that; freelancer cost is approved hours at each freelancer's rate.
+ * Admin-only (reads rates).
  */
 export async function getClientMoney(clientId: string, purchases: Purchase[], tasks: Task[]): Promise<ClientMoney> {
   const supabase = await createClient();
@@ -616,7 +746,7 @@ export async function getClientMoney(clientId: string, purchases: Purchase[], ta
       .from("time_entries")
       .select("task_id, hours, created_by")
       .eq("client_id", clientId)
-      .in("status", ["awaiting_client", "approved"]),
+      .in("status", ["reviewed", "awaiting_client", "approved"]),
   ]);
   if (entriesRes.error) throw entriesRes.error;
 
@@ -625,43 +755,80 @@ export async function getClientMoney(clientId: string, purchases: Purchase[], ta
   const prepaidAmount = priced.length ? round(priced.reduce((s, p) => s + p.hours * p.hourly_rate! * (1 - p.discount_pct / 100), 0)) : null;
   const netRate = pricedHours > 0 ? prepaidAmount! / pricedHours : rates.hourly_rate;
   const toInr = (amount: number | null) => (amount == null || rates.inr_per_unit == null ? null : round(amount * rates.inr_per_unit));
+  const tdsOf = (inr: number | null) => (inr == null ? null : round((inr * rates.tds_pct) / 100));
 
   const rateFor = new Map<string, number | null>();
   for (const t of tasks) for (const a of t.assignees) rateFor.set(`${t.id}:${a.user_id}`, a.hourly_rate_inr);
 
-  const byTask = new Map<string, { hours: number; cost: number; unrated: number }>();
+  const logged = new Map<string, { hours: number; freelancerHours: number; cost: number; unrated: number }>();
   for (const e of (entriesRes.data ?? []) as { task_id: string | null; hours: number; created_by: string | null }[]) {
     const key = e.task_id ?? "none";
-    const row = byTask.get(key) ?? { hours: 0, cost: 0, unrated: 0 };
+    const row = logged.get(key) ?? { hours: 0, freelancerHours: 0, cost: 0, unrated: 0 };
     const hours = Number(e.hours);
     row.hours += hours;
+    // Entries you log yourself (or whose author isn't on the task) have no freelancer cost.
     const rate = e.task_id && e.created_by ? rateFor.get(`${e.task_id}:${e.created_by}`) : undefined;
-    if (rate == null) row.unrated += hours;
-    else row.cost += hours * rate;
-    byTask.set(key, row);
+    if (rate !== undefined) {
+      row.freelancerHours += hours;
+      if (rate == null) row.unrated += hours;
+      else row.cost += hours * rate;
+    }
+    logged.set(key, row);
   }
 
-  const rows: TaskMoney[] = [...tasks.map((t) => ({ id: t.id, title: t.title })), { id: "none", title: "Not linked to a task" }]
-    .filter((t) => t.id !== "none" || byTask.has("none"))
-    .map((t) => {
-      const r = byTask.get(t.id) ?? { hours: 0, cost: 0, unrated: 0 };
-      const clientAmount = netRate == null ? null : round(r.hours * netRate);
-      const clientAmountInr = toInr(clientAmount);
-      return {
-        task_id: t.id,
-        title: t.title,
-        billedHours: round(r.hours),
-        clientAmount,
-        clientAmountInr,
-        freelancerCostInr: round(r.cost),
-        unratedHours: round(r.unrated),
-        marginInr: clientAmountInr == null ? null : round(clientAmountInr - r.cost),
-      };
-    });
+  const row = (billedHours: number, l: { freelancerHours: number; cost: number; unrated: number }): MoneyRow => {
+    const clientAmount = netRate == null ? null : round(billedHours * netRate);
+    const clientAmountInr = toInr(clientAmount);
+    const tdsInr = tdsOf(clientAmountInr);
+    return {
+      billedHours: round(billedHours),
+      clientAmount,
+      clientAmountInr,
+      tdsInr,
+      freelancerHours: round(l.freelancerHours),
+      freelancerCostInr: round(l.cost),
+      unratedHours: round(l.unrated),
+      profitInr: clientAmountInr == null ? null : round(clientAmountInr - (tdsInr ?? 0) - l.cost),
+    };
+  };
 
-  const sum = (k: "billedHours" | "freelancerCostInr" | "unratedHours") => round(rows.reduce((s, r) => s + r[k], 0));
-  const clientAmount = netRate == null ? null : round(rows.reduce((s, r) => s + (r.clientAmount ?? 0), 0));
-  const clientAmountInr = toInr(clientAmount);
+  const empty = { hours: 0, freelancerHours: 0, cost: 0, unrated: 0 };
+  const rows: TaskMoney[] = tasks.map((t) => {
+    const l = logged.get(t.id) ?? empty;
+    const budgetHours = t.budget_status === "approved" ? t.totalEstimate : 0;
+    const billed = rates.billing_basis === "budget" ? budgetHours : l.hours;
+    // Expected: the client pays for the whole budget and every freelancer uses all their hours.
+    const plannedCost = t.assignees.reduce((s, a) => s + a.allocated_hours * (a.hourly_rate_inr ?? 0), 0);
+    const budgetInr = toInr(netRate == null ? null : round(t.totalEstimate * netRate));
+    return {
+      task_id: t.id,
+      title: t.title,
+      budgetStatus: t.budget_status,
+      budgetHours: t.totalEstimate,
+      allocatedHours: t.allocatedHours,
+      reserveHours: round(t.totalEstimate - t.allocatedHours),
+      expectedProfitInr: budgetInr == null ? null : round(budgetInr - (tdsOf(budgetInr) ?? 0) - plannedCost),
+      ...row(billed, l),
+    };
+  });
+  const none = logged.get("none");
+  if (none && rates.billing_basis === "logged") {
+    rows.push({
+      task_id: "none",
+      title: "Not linked to a task",
+      budgetStatus: null,
+      budgetHours: 0,
+      allocatedHours: 0,
+      reserveHours: 0,
+      expectedProfitInr: null,
+      ...row(none.hours, none),
+    });
+  }
+
+  const sum = (k: "billedHours" | "freelancerHours" | "freelancerCostInr" | "unratedHours" | "budgetHours" | "allocatedHours" | "reserveHours") =>
+    round(rows.reduce((s, r) => s + r[k], 0));
+  const sumNullable = (k: "clientAmount" | "clientAmountInr" | "tdsInr" | "profitInr" | "expectedProfitInr") =>
+    rows.some((r) => r[k] == null && (k !== "expectedProfitInr" || r.task_id !== "none")) ? null : round(rows.reduce((s, r) => s + (r[k] ?? 0), 0));
   return {
     rates,
     netRate: netRate == null ? null : round(netRate),
@@ -669,11 +836,17 @@ export async function getClientMoney(clientId: string, purchases: Purchase[], ta
     tasks: rows,
     totals: {
       billedHours: sum("billedHours"),
-      clientAmount,
-      clientAmountInr,
+      clientAmount: sumNullable("clientAmount"),
+      clientAmountInr: sumNullable("clientAmountInr"),
+      tdsInr: sumNullable("tdsInr"),
+      freelancerHours: sum("freelancerHours"),
       freelancerCostInr: sum("freelancerCostInr"),
       unratedHours: sum("unratedHours"),
-      marginInr: clientAmountInr == null ? null : round(clientAmountInr - sum("freelancerCostInr")),
+      profitInr: sumNullable("profitInr"),
+      budgetHours: sum("budgetHours"),
+      allocatedHours: sum("allocatedHours"),
+      reserveHours: sum("reserveHours"),
+      expectedProfitInr: sumNullable("expectedProfitInr"),
     },
   };
 }

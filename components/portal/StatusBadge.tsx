@@ -4,8 +4,8 @@ type Audience = "client" | "freelancer" | "admin";
 
 const labels: Record<Audience, Record<EntryStatus, string>> = {
   client: { pending: "In review", reviewed: "In review", awaiting_client: "Awaiting your approval", approved: "Approved", rejected: "Rejected" },
-  freelancer: { pending: "Waiting review", reviewed: "Approved", awaiting_client: "Sent to client", approved: "Client approved", rejected: "Rejected" },
-  admin: { pending: "Waiting review", reviewed: "Approved, not sent", awaiting_client: "Awaiting client", approved: "Client approved", rejected: "Rejected" },
+  freelancer: { pending: "Waiting review", reviewed: "Approved", awaiting_client: "Approved", approved: "Approved", rejected: "Rejected" },
+  admin: { pending: "Waiting review", reviewed: "Approved, not sent", awaiting_client: "Awaiting client", approved: "Approved", rejected: "Rejected" },
 };
 
 const styles: Record<EntryStatus, string> = {

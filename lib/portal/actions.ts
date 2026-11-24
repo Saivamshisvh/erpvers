@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { discountForHours } from "@/lib/prepaid";
 import { LOGIN_PATHS, getPendingRegistrations, requireAdmin, requireFreelancer, requireUser, type LoginAudience } from "@/lib/portal/data";
-import { describeNotify, notifyAdminOfChangeRequest, notifyClient, notifyClientChangeRequests, sendInviteEmail } from "@/lib/portal/notify";
+import { describeNotify, notifyAdminOfChangeRequest, notifyClient, notifyClientBudgets, notifyClientChangeRequests, sendInviteEmail } from "@/lib/portal/notify";
 import { CURRENCIES } from "@/lib/portal/format";
 import { isPortalConfigured } from "@/lib/supabase/config";
 import { createClient } from "@/lib/supabase/server";
@@ -434,20 +434,13 @@ export async function addEntryAction(_prev: ActionState, form: FormData): Promis
   if (description.length < 1 || description.length > 1000) return fail("Describe the work (up to 1,000 characters).");
   if (!Number.isFinite(hours) || hours <= 0 || hours > 24) return fail("Hours must be more than 0 and at most 24.");
 
-  const sendNow = text(form, "sendNow") === "yes";
   const supabase = await createClient();
   const { error } = await supabase
     .from("time_entries")
-    .insert({ client_id: clientId, task_id: taskId, work_date: workDate, consultant, description, hours, status: sendNow ? "awaiting_client" : "reviewed" });
+    .insert({ client_id: clientId, task_id: taskId, work_date: workDate, consultant, description, hours, status: "approved" });
   if (error) return fail(`Could not log the hours: ${error.message}`);
-
-  if (!sendNow) {
-    refresh(clientId);
-    return { ok: true, message: `Logged ${hours} hours. They're under "Approved, not sent yet" until you send them to the client.` };
-  }
-  const email = describeNotify(await notifyClient(clientId));
   refresh(clientId);
-  return { ok: true, message: `Logged ${hours} hours and sent them to the client to approve. ${email}`.trim() };
+  return { ok: true, message: `Logged ${hours} hours. They're in the client's work log.` };
 }
 
 export async function deleteEntryAction(_prev: ActionState, form: FormData): Promise<ActionState> {
@@ -523,20 +516,27 @@ function taskIdFrom(form: FormData) {
   return id;
 }
 
-/** Per-assignee rates from inputs named rate_<userId>. Empty means "no rate yet". */
-function readAssigneeRates(form: FormData, userIds: string[]): Map<string, number | null> | { error: string } {
-  const rates = new Map<string, number | null>();
+type AssigneeInput = { rate: number | null; hours: number };
+
+/** Per-assignee rate (rate_<userId>, empty means "no rate yet") and hours given (hours_<userId>, empty means 0). */
+function readAssignees(form: FormData, userIds: string[]): Map<string, AssigneeInput> | { error: string } {
+  const out = new Map<string, AssigneeInput>();
   for (const id of userIds) {
-    const raw = text(form, `rate_${id}`);
-    if (raw === "") {
-      rates.set(id, null);
-      continue;
-    }
-    const n = Number(raw);
-    if (!Number.isFinite(n) || n < 0 || n > 1_000_000) return { error: "Freelancer rates must be 0 or more (INR per hour)." };
-    rates.set(id, n);
+    const rateRaw = text(form, `rate_${id}`);
+    const rate = rateRaw === "" ? null : Number(rateRaw);
+    if (rate != null && (!Number.isFinite(rate) || rate < 0 || rate > 1_000_000)) return { error: "Freelancer rates must be 0 or more (INR per hour)." };
+    const hoursRaw = text(form, `hours_${id}`);
+    const hours = hoursRaw === "" ? 0 : Number(hoursRaw);
+    if (!Number.isFinite(hours) || hours < 0 || hours > 100_000) return { error: "Hours given to a freelancer must be 0 or more." };
+    out.set(id, { rate, hours });
   }
-  return rates;
+  return out;
+}
+
+function allocationError(message: string) {
+  const over = message.match(/ALLOCATION_OVER_BUDGET:([\d.]+)/);
+  if (over) return `That's more than the task's budget. This freelancer can have at most ${Number(over[1])} hours on it.`;
+  return message;
 }
 
 function readTaskFields(form: FormData) {
@@ -555,26 +555,48 @@ export async function createTaskAction(_prev: ActionState, form: FormData): Prom
   const clientId = clientIdFrom(form);
   const fields = readTaskFields(form);
   if ("error" in fields) return fail(fields.error!);
-  const rates = readAssigneeRates(form, fields.assignees);
-  if ("error" in rates) return fail(rates.error as string);
+  const people = readAssignees(form, fields.assignees);
+  if ("error" in people) return fail(people.error as string);
+  const given = [...people.values()].reduce((s, p) => s + p.hours, 0);
+  if (given > fields.estimate) return fail(`You gave freelancers ${given} hours, more than the ${fields.estimate}-hour estimate.`);
+  // draft: keep it to yourself for now. send: email the estimate to the client. agreed: the client agreed on a call.
+  const next = text(form, "budget");
+  const user = await requireUser("admin");
 
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("tasks")
-    .insert({ client_id: clientId, title: fields.title, description: fields.description, estimate_hours: fields.estimate })
+    .insert({
+      client_id: clientId,
+      title: fields.title,
+      description: fields.description,
+      estimate_hours: fields.estimate,
+      budget_status: next === "agreed" ? "approved" : next === "send" ? "pending_client" : "draft",
+      ...(next === "agreed" ? { budget_approved_by: user.id, budget_approved_at: new Date().toISOString() } : {}),
+    })
     .select("id")
     .single();
   if (error) return fail(`Could not create the task: ${error.message}`);
 
   if (fields.assignees.length > 0) {
-    const assign = await supabase
-      .from("task_assignments")
-      .insert(fields.assignees.map((user_id) => ({ task_id: data.id, user_id, hourly_rate_inr: rates.get(user_id) ?? null })));
-    if (assign.error) return fail(`Task created, but assigning failed: ${assign.error.message}`);
+    const assign = await supabase.from("task_assignments").insert(
+      fields.assignees.map((user_id) => ({
+        task_id: data.id,
+        user_id,
+        hourly_rate_inr: people.get(user_id)?.rate ?? null,
+        allocated_hours: people.get(user_id)?.hours ?? 0,
+      })),
+    );
+    if (assign.error) return fail(`Task created, but assigning failed: ${allocationError(assign.error.message)}`);
   }
 
   refresh(clientId);
-  return { ok: true, message: `Task created with a ${fields.estimate}-hour estimate.` };
+  if (next === "send") {
+    const email = await notifyClientBudgets(clientId);
+    return { ok: true, message: `Task created and the ${fields.estimate}-hour estimate sent to the client to approve. ${email}`.trim() };
+  }
+  if (next === "agreed") return { ok: true, message: `Task created with an approved ${fields.estimate}-hour budget. Freelancers can start logging.` };
+  return { ok: true, message: `Task saved as a draft (${fields.estimate} h). Send the estimate to the client when you're ready.` };
 }
 
 export async function updateTaskAction(_prev: ActionState, form: FormData): Promise<ActionState> {
@@ -584,19 +606,32 @@ export async function updateTaskAction(_prev: ActionState, form: FormData): Prom
   const fields = readTaskFields(form);
   if ("error" in fields) return fail(fields.error!);
   const status = text(form, "status") === "done" ? "done" : "open";
-  const rates = readAssigneeRates(form, fields.assignees);
-  if ("error" in rates) return fail(rates.error as string);
+  const people = readAssignees(form, fields.assignees);
+  if ("error" in people) return fail(people.error as string);
 
   const supabase = await createClient();
-  const { error } = await supabase
-    .from("tasks")
-    .update({ title: fields.title, description: fields.description, estimate_hours: fields.estimate, status })
-    .eq("id", taskId)
-    .eq("client_id", clientId);
+  const existing = await supabase.from("tasks").select("estimate_hours, budget_status").eq("id", taskId).eq("client_id", clientId).maybeSingle();
+  if (existing.error || !existing.data) return fail("Task not found.");
+  const update: Record<string, unknown> = { title: fields.title, description: fields.description, status };
+  let note = "";
+  if (Number(existing.data.estimate_hours) !== fields.estimate) {
+    if (existing.data.budget_status === "approved") {
+      note = " The estimate wasn't changed: the client already approved it. Add a change request for more hours.";
+    } else {
+      update.estimate_hours = fields.estimate;
+      if (existing.data.budget_status === "pending_client") {
+        // The client was sent a different number: they need to see the new one.
+        update.budget_status = "draft";
+        update.budget_notified_at = null;
+        note = " The estimate changed, so it's back to draft. Send it to the client again.";
+      }
+    }
+  }
+  const { error } = await supabase.from("tasks").update(update).eq("id", taskId).eq("client_id", clientId);
   if (error) return fail(`Could not save the task: ${error.message}`);
 
   // Replace assignments with the boxes that are ticked.
-  const current = await supabase.from("task_assignments").select("user_id, hourly_rate_inr").eq("task_id", taskId);
+  const current = await supabase.from("task_assignments").select("user_id, hourly_rate_inr, allocated_hours").eq("task_id", taskId);
   if (current.error) return fail(current.error.message);
   const have = new Set((current.data ?? []).map((a) => a.user_id));
   const want = new Set(fields.assignees);
@@ -606,22 +641,90 @@ export async function updateTaskAction(_prev: ActionState, form: FormData): Prom
     const r = await supabase.from("task_assignments").delete().eq("task_id", taskId).in("user_id", remove);
     if (r.error) return fail(r.error.message);
   }
-  if (add.length) {
-    const a = await supabase.from("task_assignments").insert(add.map((user_id) => ({ task_id: taskId, user_id, hourly_rate_inr: rates.get(user_id) ?? null })));
-    if (a.error) return fail(a.error.message);
-  }
-  for (const row of current.data ?? []) {
-    if (!want.has(row.user_id)) continue;
-    const next = rates.get(row.user_id) ?? null;
-    const prev = row.hourly_rate_inr == null ? null : Number(row.hourly_rate_inr);
-    if (next !== prev) {
-      const u = await supabase.from("task_assignments").update({ hourly_rate_inr: next }).eq("task_id", taskId).eq("user_id", row.user_id);
-      if (u.error) return fail(u.error.message);
+  // Lower hours first, so moving hours from one freelancer to another stays within the budget.
+  const changes = (current.data ?? [])
+    .filter((row) => want.has(row.user_id))
+    .map((row) => ({ row, next: people.get(row.user_id)! }))
+    .sort((a, b) => a.next.hours - Number(a.row.allocated_hours) - (b.next.hours - Number(b.row.allocated_hours)));
+  for (const { row, next } of changes) {
+    const prevRate = row.hourly_rate_inr == null ? null : Number(row.hourly_rate_inr);
+    if (next.rate !== prevRate || next.hours !== Number(row.allocated_hours)) {
+      const u = await supabase
+        .from("task_assignments")
+        .update({ hourly_rate_inr: next.rate, allocated_hours: next.hours })
+        .eq("task_id", taskId)
+        .eq("user_id", row.user_id);
+      if (u.error) return fail(allocationError(u.error.message));
     }
+  }
+  if (add.length) {
+    const a = await supabase.from("task_assignments").insert(
+      add.map((user_id) => ({ task_id: taskId, user_id, hourly_rate_inr: people.get(user_id)?.rate ?? null, allocated_hours: people.get(user_id)?.hours ?? 0 })),
+    );
+    if (a.error) return fail(allocationError(a.error.message));
   }
 
   refresh(clientId);
-  return { ok: true, message: "Task saved." };
+  return { ok: true, message: `Task saved.${note}` };
+}
+
+/** Send draft estimates to the client (one task, or every draft for the client) in one email. */
+export async function sendBudgetAction(_prev: ActionState, form: FormData): Promise<ActionState> {
+  await requireAdmin();
+  const clientId = clientIdFrom(form);
+  const taskId = text(form, "taskId");
+  if (taskId && !UUID.test(taskId)) return fail("Invalid task.");
+  const supabase = await createClient();
+  let query = supabase.from("tasks").update({ budget_status: "pending_client", budget_notified_at: null }).eq("client_id", clientId).eq("budget_status", "draft");
+  if (taskId) query = query.eq("id", taskId);
+  const { data, error } = await query.select("id");
+  if (error) return fail(`Could not send: ${error.message}`);
+  if (!data?.length) return fail("No draft estimate to send. Refresh the page.");
+  const email = await notifyClientBudgets(clientId);
+  refresh(clientId);
+  return { ok: true, message: `Sent to the client to approve. ${email}`.trim() };
+}
+
+/** Email the client again about estimates still waiting for them. */
+export async function remindBudgetAction(_prev: ActionState, form: FormData): Promise<ActionState> {
+  await requireAdmin();
+  const clientId = clientIdFrom(form);
+  const message = await notifyClientBudgets(clientId, { reminder: true });
+  refresh(clientId);
+  return { ok: !/couldn't|isn't set up|Nobody|No estimate/.test(message), message };
+}
+
+/** The client agreed to the estimate on a call or by email: approve it without asking them in the portal. */
+export async function markBudgetAgreedAction(_prev: ActionState, form: FormData): Promise<ActionState> {
+  const admin = await requireAdmin();
+  const clientId = clientIdFrom(form);
+  const taskId = taskIdFrom(form);
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("tasks")
+    .update({ budget_status: "approved", budget_approved_by: admin.id, budget_approved_at: new Date().toISOString() })
+    .eq("id", taskId)
+    .eq("client_id", clientId)
+    .in("budget_status", ["draft", "pending_client"])
+    .select("id");
+  if (error) return fail(`Could not save: ${error.message}`);
+  if (!data?.length) return fail("This estimate is already approved. Refresh the page.");
+  refresh(clientId);
+  return { ok: true, message: "Budget approved. Freelancers can start logging hours on this task." };
+}
+
+/** Client: approve estimates (one, or all waiting). */
+export async function clientApproveBudgetsAction(_prev: ActionState, form: FormData): Promise<ActionState> {
+  await requireUser();
+  const clientId = clientIdFrom(form);
+  const ids = form.getAll("taskId").map(String).filter((v) => UUID.test(v));
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("client_approve_budgets", { p_client_id: clientId, p_ids: ids.length ? ids : null });
+  if (error) return fail("Something went wrong saving your approval. Please try again, or contact us.");
+  const n = Number(data ?? 0);
+  if (n === 0) return fail("Already approved. Refresh the page to see the latest.");
+  revalidatePath("/portal", "layout");
+  return { ok: true, message: `Thank you. ${n === 1 ? "The estimate is" : `${n} estimates are`} approved and the work can start.` };
 }
 
 export async function deleteTaskAction(_prev: ActionState, form: FormData): Promise<ActionState> {
@@ -711,7 +814,7 @@ export async function reviewEntryAction(_prev: ActionState, form: FormData): Pro
   if (decision === "reject" && !note) return fail("Add a short reason so the freelancer knows what to fix.");
 
   const update: Record<string, unknown> = {
-    status: decision === "approve" ? "reviewed" : "rejected",
+    status: decision === "approve" ? "approved" : "rejected",
     review_note: note || null,
     reviewed_by: admin.id,
     reviewed_at: new Date().toISOString(),
@@ -732,7 +835,7 @@ export async function reviewEntryAction(_prev: ActionState, form: FormData): Pro
     return { ok: true, message: "Rejected. The freelancer can see your note." };
   }
   refresh(data.client_id);
-  return { ok: true, message: "Approved. It's under \"Approved, not sent yet\" until you send it to the client." };
+  return { ok: true, message: "Approved. The hours are in the client's work log." };
 }
 
 // ---------------------------------------------------------------------------
@@ -802,9 +905,17 @@ function friendlyEntryError(message: string) {
   if (exceeded) {
     const left = Number(exceeded[1]);
     return left > 0
-      ? `Only ${left} hours are left on this task's estimate. If the work needs more, request extra hours on the task.`
-      : "This task's hours are used up. Request extra hours on the task if more work is needed.";
+      ? `Only ${left} hours are left on this task. If you need more, ask ERP VERS for more hours on the task.`
+      : "This task's hours are used up. Ask ERP VERS for more hours on the task.";
   }
+  const mine = message.match(/ALLOCATION_EXCEEDED:([\d.]+)/);
+  if (mine) {
+    const left = Number(mine[1]);
+    return left > 0
+      ? `You have ${left} hours left on this task. If you need more, ask ERP VERS for more hours on the task.`
+      : "You've used all the hours ERP VERS gave you on this task. Ask for more hours on the task.";
+  }
+  if (message.includes("BUDGET_NOT_APPROVED")) return "The client hasn't approved this task's estimate yet, so hours can't be logged on it.";
   if (message.includes("TASK_CLOSED")) return "This task is marked done, so hours can't be logged on it.";
   if (message.includes("CHANGE_REQUEST_MISMATCH")) return "That change request belongs to a different task.";
   if (message.includes("CHANGE_REQUEST_NOT_APPROVED")) return "That change request isn't approved by the client yet, so hours can't be logged on it.";
@@ -848,7 +959,7 @@ export async function logHoursAction(_prev: ActionState, form: FormData): Promis
 
   revalidatePath("/portal/work");
   revalidatePath("/portal", "layout");
-  return { ok: true, message: `Logged ${hours} hours. ERP VERS will review them before they go to the client.` };
+  return { ok: true, message: `Logged ${hours} hours. ERP VERS will review them.` };
 }
 
 export async function deleteMyEntryAction(_prev: ActionState, form: FormData): Promise<ActionState> {
@@ -867,14 +978,14 @@ export async function deleteMyEntryAction(_prev: ActionState, form: FormData): P
 // Admin: sending hours to the client
 // ---------------------------------------------------------------------------
 
-/** Approve every freelancer entry waiting for review for one client. Nothing is sent to the client. */
+/** Approve every freelancer entry waiting for review for one client. They go into the client's work log. */
 export async function approveAllForClientAction(_prev: ActionState, form: FormData): Promise<ActionState> {
   const admin = await requireAdmin();
   const clientId = clientIdFrom(form);
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("time_entries")
-    .update({ status: "reviewed", reviewed_by: admin.id, reviewed_at: new Date().toISOString(), review_note: null })
+    .update({ status: "approved", reviewed_by: admin.id, reviewed_at: new Date().toISOString(), review_note: null })
     .eq("client_id", clientId)
     .eq("status", "pending")
     .select("id");
@@ -882,7 +993,7 @@ export async function approveAllForClientAction(_prev: ActionState, form: FormDa
   if (!data?.length) return fail("Nothing is waiting for review for this client.");
 
   refresh(clientId);
-  return { ok: true, message: `Approved ${data.length} ${data.length === 1 ? "entry" : "entries"}. Send them to the client when you're ready.` };
+  return { ok: true, message: `Approved ${data.length} ${data.length === 1 ? "entry" : "entries"}. They're in the client's work log.` };
 }
 
 /** Send approved hours to the client (all of them, or the ticked ones) in one email. */
@@ -966,43 +1077,73 @@ export async function clientApproveAction(_prev: ActionState, form: FormData): P
 // Change requests: freelancer asks, ERP VERS reviews, client approves
 // ---------------------------------------------------------------------------
 
-export async function requestChangeAction(_prev: ActionState, form: FormData): Promise<ActionState> {
+export async function requestHoursAction(_prev: ActionState, form: FormData): Promise<ActionState> {
   const profile = await requireFreelancer();
   const taskId = text(form, "taskId");
-  const title = text(form, "title");
-  const reason = text(form, "description");
+  const reason = text(form, "reason");
   const hours = num(form, "hours");
   if (!UUID.test(taskId)) return fail("Pick a task.");
-  if (title.length < 1 || title.length > 160) return fail("Say in a few words what the extra work is.");
-  if (reason.length < 1 || reason.length > 2000) return fail("Explain why the extra hours are needed (up to 2,000 characters).");
-  if (!Number.isFinite(hours) || hours <= 0 || hours > 1000) return fail("Extra hours must be more than 0.");
+  if (reason.length < 1 || reason.length > 2000) return fail("Explain why you need more hours (up to 2,000 characters).");
+  if (!Number.isFinite(hours) || hours <= 0 || hours > 1000) return fail("Hours must be more than 0.");
 
   const supabase = await createClient();
   const task = await supabase.from("tasks").select("title, client:clients(name)").eq("id", taskId).maybeSingle();
   if (!task.data) return fail("You're not assigned to this task.");
-  const { error } = await supabase.from("change_requests").insert({
-    task_id: taskId,
-    title,
-    description: reason,
-    hours,
-    status: "requested",
-    requested_by: profile.user_id,
-  });
-  if (error) {
-    if (error.message.includes("TASK_CLOSED")) return fail("This task is marked done. Contact ERP VERS if more work is needed.");
-    return fail(`Could not send the request: ${error.message}`);
-  }
+  const { error } = await supabase.from("hour_requests").insert({ task_id: taskId, user_id: profile.user_id, hours, reason });
+  if (error) return fail(`Could not send the request: ${error.message}`);
 
   await notifyAdminOfChangeRequest({
     freelancer: profile.full_name,
     taskTitle: task.data.title,
     clientName: (task.data.client as unknown as { name: string } | null)?.name ?? "Client",
-    title,
     hours,
     reason,
   });
   revalidatePath("/portal/work");
-  return { ok: true, message: `Sent. ERP VERS will review your request for ${hours} extra hours. You can log the extra hours once it's approved.` };
+  return { ok: true, message: `Sent. ERP VERS will review your request for ${hours} more hours.` };
+}
+
+/** Admin: give a freelancer more hours from the task's reserve. */
+export async function grantHourRequestAction(_prev: ActionState, form: FormData): Promise<ActionState> {
+  await requireAdmin();
+  const id = text(form, "id");
+  const hours = num(form, "hours");
+  const note = text(form, "note");
+  if (!UUID.test(id)) return fail("Invalid request.");
+  if (!Number.isFinite(hours) || hours <= 0 || hours > 1000) return fail("Hours must be more than 0.");
+  if (note.length > 500) return fail("Note is too long (500 characters max).");
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("grant_hour_request", { p_id: id, p_hours: hours, p_note: note || null });
+  if (error) {
+    if (error.message.includes("ALLOCATION_OVER_BUDGET")) {
+      return fail(`${allocationError(error.message)} Ask the client for more with a change request on the task, then give the hours here once they approve.`);
+    }
+    if (error.message.includes("ALREADY_HANDLED")) return fail("This request was already handled. Refresh the page.");
+    if (error.message.includes("NOT_ASSIGNED")) return fail("This freelancer isn't on the task any more.");
+    return fail(`Could not save: ${error.message}`);
+  }
+  refresh();
+  return { ok: true, message: `Gave ${hours} more hours. The freelancer can log them now.` };
+}
+
+/** Admin: decline a freelancer's request for more hours. */
+export async function declineHourRequestAction(_prev: ActionState, form: FormData): Promise<ActionState> {
+  const admin = await requireAdmin();
+  const id = text(form, "id");
+  const note = text(form, "note");
+  if (!UUID.test(id)) return fail("Invalid request.");
+  if (note.length < 1 || note.length > 500) return fail("Give a short reason (the freelancer sees it).");
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("hour_requests")
+    .update({ status: "declined", review_note: note, reviewed_by: admin.id, reviewed_at: new Date().toISOString() })
+    .eq("id", id)
+    .eq("status", "requested")
+    .select("id");
+  if (error) return fail(`Could not save: ${error.message}`);
+  if (!data?.length) return fail("This request was already handled. Refresh the page.");
+  refresh();
+  return { ok: true, message: "Declined. The freelancer can see your reason." };
 }
 
 /** Admin: approve a freelancer's request (optionally changing the hours), or decline it. Approving sends nothing to the client. */
@@ -1129,11 +1270,21 @@ export async function setClientRatesAction(_prev: ActionState, form: FormData): 
   if (hourlyRate != null && (!Number.isFinite(hourlyRate) || hourlyRate < 0)) return fail("Hourly rate must be 0 or more.");
   const inrPerUnit = currency === "INR" ? 1 : fxRaw === "" ? null : Number(fxRaw);
   if (inrPerUnit != null && (!Number.isFinite(inrPerUnit) || inrPerUnit <= 0)) return fail("Exchange rate must be more than 0.");
+  const tdsRaw = text(form, "tdsPct");
+  const tdsPct = tdsRaw === "" ? 0 : Number(tdsRaw);
+  if (!Number.isFinite(tdsPct) || tdsPct < 0 || tdsPct > 100) return fail("TDS must be between 0 and 100%.");
+  const billingBasis = text(form, "billingBasis") === "budget" ? "budget" : "logged";
 
   const supabase = await createClient();
-  const { error } = await supabase
-    .from("client_rates")
-    .upsert({ client_id: clientId, currency, hourly_rate: hourlyRate, inr_per_unit: inrPerUnit, updated_at: new Date().toISOString() });
+  const { error } = await supabase.from("client_rates").upsert({
+    client_id: clientId,
+    currency,
+    hourly_rate: hourlyRate,
+    inr_per_unit: inrPerUnit,
+    tds_pct: tdsPct,
+    billing_basis: billingBasis,
+    updated_at: new Date().toISOString(),
+  });
   if (error) return fail(`Could not save rates: ${error.message}`);
   refresh(clientId);
   return { ok: true, message: "Rates saved. New purchases use this rate; earlier purchases keep theirs." };

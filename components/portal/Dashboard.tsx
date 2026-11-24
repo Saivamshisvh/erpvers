@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import Icon from "@/components/shared/Icon";
 import AwaitingApproval, { type EmailState } from "@/components/portal/AwaitingApproval";
+import BudgetApproval from "@/components/portal/BudgetApproval";
 import ChangeApproval from "@/components/portal/ChangeApproval";
 import StatusBadge from "@/components/portal/StatusBadge";
 import TaskCard from "@/components/portal/TaskCard";
@@ -19,27 +20,58 @@ type DashboardProps = {
 };
 
 export default function Dashboard({ data, entryAction, purchaseAction, mode = "client", emailState }: DashboardProps) {
-  const { client, summary, entries, purchases, members, monthly, tasks, awaiting } = data;
+  const { client, summary, entries, purchases, members, monthly, tasks, awaiting, budget } = data;
+  const hasPrepaid = purchases.length > 0;
+  // Draft estimates are never shown to the client (the admin preview mirrors what they see).
+  const visibleTasks = tasks.filter((t) => t.budget_status !== "draft");
 
   return (
     <div className="grid gap-6 [&>*]:min-w-0">
       {awaiting.length > 0 && (
         <AwaitingApproval clientId={client.id} entries={awaiting} totalHours={summary.awaitingHours} mode={mode} emailState={emailState} />
       )}
+      <BudgetApproval clientId={client.id} tasks={tasks} mode={mode} />
       <ChangeApproval clientId={client.id} tasks={tasks} mode={mode} />
-      {summary.isOverdrawn && (
+      {hasPrepaid && summary.isOverdrawn && (
         <Alert tone="critical" title={`${formatHours(Math.abs(summary.remaining))} hours over your prepaid balance`}>
           Hours logged are now more than the hours purchased. Get in touch to top up your prepaid block.
         </Alert>
       )}
-      {summary.isLow && (
+      {hasPrepaid && summary.isLow && (
         <Alert tone="warning" title={`Only ${formatHours(summary.remaining)} hours left`}>
           Your balance is at or below your alert level of {formatHours(client.low_balance_hours)} hours. Top up to keep work
           running without a pause.
         </Alert>
       )}
 
+      {/* Approved budget */}
+      {(budget.approved > 0 || budget.waiting > 0) && (
+        <section aria-label="Approved hours" className="grid gap-4 lg:grid-cols-[1.3fr_1fr_1fr]">
+          <div className="rounded-2xl bg-slate-950 p-6 text-white sm:p-7">
+            <p className="text-sm font-semibold text-slate-400">Approved hours left</p>
+            <p className="mt-2 text-5xl font-bold tracking-tight tabular-nums">{formatHours(budget.remaining)}</p>
+            <div
+              className="mt-6 h-2 overflow-hidden rounded-full bg-white/10"
+              role="img"
+              aria-label={`${formatHours(budget.used)} of ${formatHours(budget.approved)} approved hours used`}
+            >
+              <div className="h-full rounded-full bg-cyan-400" style={{ width: `${budget.approved > 0 ? Math.min(100, (budget.used / budget.approved) * 100) : 0}%` }} />
+            </div>
+            <p className="mt-2 text-xs text-slate-400">
+              {formatHours(budget.used)} of {formatHours(budget.approved)} approved hours used
+            </p>
+          </div>
+          <Stat
+            label="Total approved hours"
+            value={formatHours(budget.approved)}
+            note={`Across ${budget.tasks} ${budget.tasks === 1 ? "task" : "tasks"}${budget.waiting > 0 ? `, plus ${formatHours(budget.waiting)} h waiting for your approval` : ""}`}
+          />
+          <Stat label="Hours used" value={formatHours(budget.used)} note={summary.lastEntryDate ? `Last logged ${formatDate(summary.lastEntryDate)}` : "Nothing logged yet"} />
+        </section>
+      )}
+
       {/* Balance */}
+      {hasPrepaid && (
       <section aria-label="Prepaid balance" className="grid gap-4 lg:grid-cols-[1.3fr_1fr_1fr]">
         <div className="rounded-2xl bg-slate-950 p-6 text-white sm:p-7">
           <p className="text-sm font-semibold text-slate-400">Hours remaining</p>
@@ -56,16 +88,18 @@ export default function Dashboard({ data, entryAction, purchaseAction, mode = "c
           note={summary.lastEntryDate ? `Last logged ${formatDate(summary.lastEntryDate)}` : "Nothing logged yet"}
         />
       </section>
+      )}
 
       <section className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-7">
         <UsageChart data={monthly} />
       </section>
 
-      {tasks.length > 0 && (
+      {visibleTasks.length > 0 && (
         <section aria-labelledby="tasks-heading">
-          <h2 id="tasks-heading" className="mb-4 text-base font-bold tracking-tight text-slate-950">Tasks</h2>
+          <h2 id="tasks-heading" className="text-base font-bold tracking-tight text-slate-950">Where the hours go</h2>
+          <p className="mb-4 mt-1 text-sm text-slate-500">Each task&apos;s approved hours, and how many have been used.</p>
           <div className="grid gap-4 lg:grid-cols-2 [&>*]:min-w-0">
-            {tasks.map((task) => (
+            {visibleTasks.map((task) => (
               <TaskCard key={task.id} task={task} />
             ))}
           </div>

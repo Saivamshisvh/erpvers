@@ -11,10 +11,13 @@ The client portal lives at `/portal`. There are three kinds of account:
   requests, review freelancer hours, and record prepaid purchases at
   `/portal/admin`.
 
-How hours flow: a freelancer logs hours -> you approve them -> when you're
-ready, you send them to the client -> the client gets an email from your
-support address and approves them in the portal. Approving and sending are
-separate buttons, and the client sees nothing until you send it. Clients can
+How it works: you agree an hour estimate with the client for each task ->
+you send it (they approve it in the portal) or record that they agreed on a
+call -> you give each freelancer their share of those hours and keep the
+rest as your reserve -> freelancers log hours up to their share -> you
+approve the hours and they appear in the client's work log. If a freelancer
+needs more, they ask you: you give hours from your reserve, or ask the
+client for more with a change request first. Clients can
 only approve; if something looks wrong they contact you, and you fix or delete
 the entry. Hours count against the prepaid balance once you've sent them.
 
@@ -27,8 +30,8 @@ Until the two environment variables below are set, `/portal` shows a
    your clients.
 2. Open **SQL Editor -> New query**, paste all of
    `supabase/migrations/0001_client_portal.sql`, and click **Run**. Then do the
-   same, in order, for `0002_rates_and_change_requests.sql` and
-   `0003_approve_then_send.sql`.
+   same, in order, for `0002_rates_and_change_requests.sql`,
+   `0003_approve_then_send.sql` and `0004_budgets_and_allocations.sql`.
 
 ## 2. Configure sign-in
 
@@ -137,20 +140,26 @@ the right page.
    the register page) and sign in on Employee login to see their tasks.
 
 **Requirements and changes**
-1. On the client page, create a task per requirement with your hour estimate
-   and tick the freelancers who work on it.
-2. Freelancers log hours against the task. They are blocked once they reach
-   the estimate.
-3. If the client asks for changes, open the task -> Add change request with
-   the extra hours. The task's estimate grows by that amount and the
-   freelancer can log the extra work against the change request.
-4. Admin -> To review: approve (you can adjust the hours) or reject with a
-   reason. Approving does not email the client. Approved hours move to
-   "Approved, not sent yet", where "Send hours to client" sends them all in
-   one email. Extra-hour requests work the same way: approve, then "Send to
-   client", or "Approve without client" to add the hours straight away.
-   Hours you log yourself count as approved; tick "Send to the client now" to
-   send them at once.
+1. On the client page, create a task per requirement with the hour estimate
+   you agreed. Tick the freelancers who work on it and give each one their
+   hours and rate. Whatever you don't give out is your reserve.
+2. Send the estimate to the client (they get one email and approve it in the
+   portal), or click "Client agreed on a call". Freelancers can't log hours
+   until the estimate is approved, and the client can't see drafts.
+3. Freelancers log hours up to the hours you gave them. If they need more,
+   they ask on the task. Admin -> To review -> "Give from reserve", or
+   decline. If the reserve isn't enough, open the task -> Add change request
+   for the client to approve; once approved, the task's budget grows and you
+   give the hours to the freelancer.
+4. Admin -> To review: approve freelancer hours (you can adjust them) or
+   reject with a reason. Approved hours go straight into the client's work
+   log. Hours you log yourself go straight in too.
+
+**Money** (client page -> Rates and profit, only you see it): set the client's
+currency and hourly rate, the TDS percentage (e.g. 10), and whether the
+client pays for the approved budget or for hours logged. Profit = what the
+client pays - TDS - freelancer hours x their rate. "Expected profit" shows
+the profit once the budget is used, including your reserve hours.
 5. On the client page, "Awaiting the client's approval" shows what they
    haven't approved yet. "Email client" resends (or reminds), and "Mark
    approved" records an approval they gave you by email or phone.

@@ -5,6 +5,8 @@ import AdminNav from "@/components/portal/AdminNav";
 import { inputClass } from "@/components/portal/fields";
 import {
   approveAllForClientAction,
+  declineHourRequestAction,
+  grantHourRequestAction,
   markChangeApprovedAction,
   reviewChangeRequestAction,
   reviewEntryAction,
@@ -14,6 +16,7 @@ import {
 import {
   getChangeRequestQueue,
   getChangesReadyToSend,
+  getHourRequestQueue,
   getPendingRegistrations,
   getReadyToSend,
   getReviewQueue,
@@ -27,12 +30,13 @@ export const metadata: Metadata = { title: "To review" };
 
 export default async function ReviewPage() {
   await requireAdmin();
-  const [queue, registrations, changes, readyHours, readyChanges] = await Promise.all([
+  const [queue, registrations, changes, readyHours, readyChanges, hourRequests] = await Promise.all([
     getReviewQueue(),
     getPendingRegistrations(),
     getChangeRequestQueue(),
     getReadyToSend(),
     getChangesReadyToSend(),
+    getHourRequestQueue(),
   ]);
 
   // Approved but not sent yet, one group per client.
@@ -57,6 +61,62 @@ export default async function ReviewPage() {
       <p className="text-sm font-bold uppercase tracking-[0.16em] text-blue-600">Admin</p>
       <h1 className="mt-2 text-3xl font-bold tracking-tight text-slate-950">To review</h1>
       <AdminNav current="review" reviewCount={queue.length} registrationCount={registrations.length} />
+
+      {hourRequests.length > 0 && (
+        <section aria-labelledby="hour-requests-heading" className="mt-8">
+          <h2 id="hour-requests-heading" className="text-lg font-bold tracking-tight text-slate-950">Freelancers asking for more hours</h2>
+          <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">
+            Only you see these. Give hours from the task&apos;s reserve, or decline. If the reserve isn&apos;t enough, add a change
+            request on the task for the client to approve, then come back and give the hours.
+          </p>
+          <ul className="mt-4 grid gap-3">
+            {hourRequests.map((r) => (
+              <li key={r.id} className="grid gap-4 rounded-2xl border border-amber-200 bg-white p-5 lg:grid-cols-[1fr_auto] lg:items-start">
+                <div className="min-w-0">
+                  <p className="text-sm text-slate-500">
+                    <Link href={`/portal/admin/clients/${r.client_id}`} className="font-semibold hover:text-blue-600">{r.client_name}</Link> · {r.task_title}
+                  </p>
+                  <p className="mt-1.5 font-semibold text-slate-950">
+                    {r.freelancer_name} asks for {formatHours(r.hours)} more hours
+                  </p>
+                  <p className="mt-1 whitespace-pre-line text-sm leading-6 text-slate-600">{r.reason}</p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Has {formatHours(r.allocated)} h now · your reserve on this task: {formatHours(r.reserve)} h · asked {formatDate(r.created_at)}
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-start gap-3 lg:justify-end">
+                  <ActionForm action={grantHourRequestAction} submitLabel="Give from reserve" pendingLabel="Saving…" className="w-full sm:w-auto">
+                    <input type="hidden" name="id" value={r.id} />
+                    <label className="grid gap-1.5">
+                      <span className="text-xs font-semibold text-slate-600">Hours to give</span>
+                      <input
+                        name="hours"
+                        type="number"
+                        min="0.25"
+                        step="0.25"
+                        defaultValue={Math.max(Math.min(r.hours, r.reserve), 0.25)}
+                        className={`${inputClass} w-28`}
+                      />
+                    </label>
+                  </ActionForm>
+                  <details className="w-full sm:w-64">
+                    <summary className="cursor-pointer py-2 text-sm font-semibold text-slate-500 hover:text-red-600">Decline…</summary>
+                    <div className="mt-2">
+                      <ActionForm action={declineHourRequestAction} submitLabel="Decline" pendingLabel="Saving…">
+                        <input type="hidden" name="id" value={r.id} />
+                        <label className="grid gap-1.5">
+                          <span className="text-xs font-semibold text-slate-600">Reason (the freelancer sees this)</span>
+                          <input name="note" required maxLength={500} className={inputClass} placeholder="e.g. Should fit in the hours given" />
+                        </label>
+                      </ActionForm>
+                    </div>
+                  </details>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       {changes.length > 0 && (
         <section aria-labelledby="changes-heading" className="mt-8">
@@ -112,17 +172,18 @@ export default async function ReviewPage() {
 
       {queue.length === 0 ? (
         changes.length === 0 &&
-        ready.size === 0 && (
+        ready.size === 0 &&
+        hourRequests.length === 0 && (
           <p className="mt-8 rounded-2xl border border-dashed border-slate-300 bg-white px-6 py-12 text-center text-slate-500">
-            Nothing waiting. Freelancer hours and extra-hour requests appear here.
+            Nothing waiting. Freelancer hours and requests for more hours appear here.
           </p>
         )
       ) : (
         <>
           <h2 className="mt-10 text-lg font-bold tracking-tight text-slate-950">Hours logged</h2>
           <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">
-            Approving does not email the client. Approved hours move to &quot;Approved, not sent yet&quot; below. The client
-            only sees them, and they only count against the prepaid balance, once you send them.
+            Approving is final: the hours go into the client&apos;s work log and count against the task&apos;s approved hours (and
+            any prepaid balance). The client doesn&apos;t approve each entry. Reject anything that looks wrong.
           </p>
           <div className="mt-6 grid gap-8">
             {[...groups.entries()].map(([clientId, group]) => {
@@ -143,7 +204,7 @@ export default async function ReviewPage() {
                         action={approveAllForClientAction}
                         submitLabel={`Approve all (${formatHours(total)} h)`}
                         pendingLabel="Approving…"
-                        confirmMessage={`Approve all ${group.entries.length} entries as logged? Nothing is sent to ${group.name} yet.`}
+                        confirmMessage={`Approve all ${group.entries.length} entries as logged? They go into ${group.name}'s work log.`}
                       >
                         <input type="hidden" name="clientId" value={clientId} />
                       </ActionForm>
